@@ -7,14 +7,13 @@ export const MASTER_TABLE_HEADERS = [
   '३. Folder Name',
   '४. Subfolder Name',
   '५. PDF Name',
-  '६. धारा/दफा/नियम/निर्देशन/बुँदा/अनुसूची ID',
+  '६. धारा/दफा/नियम/निर्देशन/बुँदा ID',
   '७. Title Name (संयुक्त)',
   '७.१ धारा Title',
   '७.२ दफा Title',
   '७.३ नियम Title',
   '७.४ निर्देशन Title',
   '७.५ बुँदा Title',
-  '७.६ अनुसूची Title',
   '८. Title Page',
   '९. अनुसूची ID',
   '१०. अनुसूची Title',
@@ -48,7 +47,7 @@ export function exportToExcel(rows: LegalRow[], filename = 'Nepal_Legal_Master_T
     const docStartRow = i + 1; // Row 0 is header row
     const docEndRow = j;       // 1-indexed for header offset
 
-    // If multiple rows share the same folder & PDF, merge columns 0, 1, 2, 3, 4, and 17
+    // If multiple rows share the same folder & PDF, merge columns 0, 1, 2, 3, 4, and 16
     if (j - i > 1) {
       // 0: '१. Folder ID'
       merges.push({ s: { r: docStartRow, c: 0 }, e: { r: docEndRow, c: 0 } });
@@ -60,8 +59,8 @@ export function exportToExcel(rows: LegalRow[], filename = 'Nepal_Legal_Master_T
       merges.push({ s: { r: docStartRow, c: 3 }, e: { r: docEndRow, c: 3 } });
       // 4: '५. PDF Name'
       merges.push({ s: { r: docStartRow, c: 4 }, e: { r: docEndRow, c: 4 } });
-      // 17: 'PDF Path'
-      merges.push({ s: { r: docStartRow, c: 17 }, e: { r: docEndRow, c: 17 } });
+      // 16: 'PDF Path'
+      merges.push({ s: { r: docStartRow, c: 16 }, e: { r: docEndRow, c: 16 } });
     }
 
     // Populate formatted rows for this block
@@ -75,18 +74,17 @@ export function exportToExcel(rows: LegalRow[], filename = 'Nepal_Legal_Master_T
         '३. Folder Name': isFirstInDoc ? r.folder_name : '',
         '४. Subfolder Name': isFirstInDoc ? (r.subfolder_name || '') : '',
         '५. PDF Name': isFirstInDoc ? (r.pdf_name || '') : '',
-        '६. धारा/दफा/नियम/निर्देशन/बुँदा/अनुसूची ID': r.section_id || r.anusuchi_id || '',
-        '७. Title Name (संयुक्त)': r.title_name || r.anusuchi_title || '',
-        '७.१ धारा Title': r.type === 'धारा' ? r.title_name : '',
-        '७.२ दफा Title': r.type === 'दफा' ? r.title_name : '',
-        '७.३ नियम Title': r.type === 'नियम' ? r.title_name : '',
-        '७.४ निर्देशन Title': r.type === 'निर्देशन' ? r.title_name : '',
-        '७.५ बुँदा Title': (r.type === 'बुँदा' || r.type === 'महल') ? r.title_name : '',
-        '७.६ अनुसूची Title': r.type === 'अनुसूची' ? (r.title_name || r.anusuchi_title || '') : '',
-        '८. Title Page': r.title_page || (r.type === 'अनुसूची' ? r.anusuchi_print_page : '') || '',
-        '९. अनुसूची ID': r.anusuchi_id || (r.type === 'अनुसूची' ? r.section_id : '') || '',
-        '१०. अनुसूची Title': r.anusuchi_title || (r.type === 'अनुसूची' ? r.title_name : '') || '',
-        '११. अनुसूची Print Page': r.anusuchi_print_page || (r.type === 'अनुसूची' ? r.title_page : '') || '',
+        '६. धारा/दफा/नियम/निर्देशन/बुँदा ID': r.section_id || '',
+        '७. Title Name': r.title_name || '',
+        '७.१ धारा': r.type === 'धारा' ? r.title_name : '',
+        '७.२ दफा': (r.type === 'दफा' || r.type === 'संशोधन') ? r.title_name : '',
+        '७.३ नियम': r.type === 'नियम' ? r.title_name : '',
+        '७.४ निर्देशन': r.type === 'निर्देशन' ? r.title_name : '',
+        '७.५ बुँदा': (r.type === 'बुँदा' || r.type === 'महल') ? r.title_name : '',
+        '८. Title Page': r.title_page || '',
+        '९. अनुसूची ID': r.anusuchi_id || '',
+        '१०. अनुसूची Title': r.anusuchi_title || '',
+        '११. अनुसूची Print Page': r.anusuchi_print_page || '',
         'PDF Path': isFirstInDoc ? (r.pdf_path || '') : ''
       });
     }
@@ -106,9 +104,14 @@ export function exportToExcel(rows: LegalRow[], filename = 'Nepal_Legal_Master_T
       if (sNext - sIdx > 1) {
         const secStart = sIdx + 1;
         const secEnd = sNext;
-        // Merge Col 5 (Section ID), Col 6 (Title Name), Col 12 (Title Page)
+        // Merge Col 5 (Section ID), Col 6 (Title Name), Cols 7-11 (Sub-columns), Col 12 (Title Page)
         merges.push({ s: { r: secStart, c: 5 }, e: { r: secEnd, c: 5 } });
         merges.push({ s: { r: secStart, c: 6 }, e: { r: secEnd, c: 6 } });
+        merges.push({ s: { r: secStart, c: 7 }, e: { r: secEnd, c: 7 } });
+        merges.push({ s: { r: secStart, c: 8 }, e: { r: secEnd, c: 8 } });
+        merges.push({ s: { r: secStart, c: 9 }, e: { r: secEnd, c: 9 } });
+        merges.push({ s: { r: secStart, c: 10 }, e: { r: secEnd, c: 10 } });
+        merges.push({ s: { r: secStart, c: 11 }, e: { r: secEnd, c: 11 } });
         merges.push({ s: { r: secStart, c: 12 }, e: { r: secEnd, c: 12 } });
 
         // Blank out subsequent rows so values are hidden
@@ -171,13 +174,12 @@ export function exportToCsv(rows: LegalRow[], filename = 'Nepal_Legal_Master_Tab
     '३. Folder Name',
     '४. Subfolder Name',
     '५. PDF Name',
-    '६. धारा/दफा/नियम/निर्देशन/बुँदा/अनुसूची ID',
+    '६. धारा/दफा/नियम/निर्देशन/बुँदा ID',
     '७.१ धारा Title',
     '७.२ दफा Title',
     '७.३ नियम Title',
     '७.४ निर्देशन Title',
     '७.५ बुँदा Title',
-    '७.६ अनुसूची Title',
     '७. Title Name (संयुक्त)',
     '८. Title Page',
     '९. अनुसूची ID',
@@ -212,18 +214,17 @@ export function exportToCsv(rows: LegalRow[], filename = 'Nepal_Legal_Master_Tab
       escapeCsv(isSameParent ? '' : r.folder_name),
       escapeCsv(isSameParent ? '' : (r.subfolder_name || '')),
       escapeCsv(isSameParent ? '' : (r.pdf_name || '')),
-      escapeCsv(isSameSection ? '' : (r.section_id || r.anusuchi_id || '')),
+      escapeCsv(isSameSection ? '' : (r.section_id || '')),
       escapeCsv(isSameSection ? '' : (r.type === 'धारा' ? r.title_name : '')),
-      escapeCsv(isSameSection ? '' : (r.type === 'दफा' ? r.title_name : '')),
+      escapeCsv(isSameSection ? '' : ((r.type === 'दफा' || r.type === 'संशोधन') ? r.title_name : '')),
       escapeCsv(isSameSection ? '' : (r.type === 'नियम' ? r.title_name : '')),
       escapeCsv(isSameSection ? '' : (r.type === 'निर्देशन' ? r.title_name : '')),
       escapeCsv(isSameSection ? '' : ((r.type === 'बुँदा' || r.type === 'महल') ? r.title_name : '')),
-      escapeCsv(isSameSection ? '' : (r.type === 'अनुसूची' ? (r.title_name || r.anusuchi_title || '') : '')),
-      escapeCsv(isSameSection ? '' : (r.title_name || r.anusuchi_title || '')),
-      escapeCsv(isSameSection ? '' : (r.title_page || (r.type === 'अनुसूची' ? r.anusuchi_print_page : '') || '')),
-      escapeCsv(r.anusuchi_id || (r.type === 'अनुसूची' ? r.section_id : '') || ''),
-      escapeCsv(r.anusuchi_title || (r.type === 'अनुसूची' ? r.title_name : '') || ''),
-      escapeCsv(r.anusuchi_print_page || (r.type === 'अनुसूची' ? r.title_page : '') || '')
+      escapeCsv(isSameSection ? '' : (r.title_name || '')),
+      escapeCsv(isSameSection ? '' : (r.title_page || '')),
+      escapeCsv(r.anusuchi_id || ''),
+      escapeCsv(r.anusuchi_title || ''),
+      escapeCsv(r.anusuchi_print_page || '')
     ].join(','));
   });
 
@@ -300,14 +301,11 @@ export function exportToJson(rows: LegalRow[], filename = 'Nepal_Legal_10_Column
       });
     }
 
-    const schId = r.anusuchi_id || (r.type === 'अनुसूची' ? r.section_id : '');
-    const schTitle = r.anusuchi_title || (r.type === 'अनुसूची' ? r.title_name : '');
-    const schPage = r.anusuchi_print_page || (r.type === 'अनुसूची' ? r.title_page : '');
-    if (schId && !docGroup.schedules.some(sch => sch.anusuchi_id === schId && sch.anusuchi_title === schTitle)) {
+    if (r.anusuchi_id && !docGroup.schedules.some(sch => sch.anusuchi_id === r.anusuchi_id && sch.anusuchi_title === r.anusuchi_title)) {
       docGroup.schedules.push({
-        anusuchi_id: schId,
-        anusuchi_title: schTitle,
-        anusuchi_print_page: schPage
+        anusuchi_id: r.anusuchi_id,
+        anusuchi_title: r.anusuchi_title,
+        anusuchi_print_page: r.anusuchi_print_page
       });
     }
   }

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Database, FileSpreadsheet, Download, ExternalLink, ShieldCheck, BookOpen, Layers, Sparkles } from 'lucide-react';
+import { Database, FileSpreadsheet, Download, ExternalLink, ShieldCheck, BookOpen, Sparkles, LogIn, LogOut, Layers } from 'lucide-react';
+import type { User } from 'firebase/auth';
 
 interface NavbarProps {
   totalRows: number;
@@ -8,15 +9,27 @@ interface NavbarProps {
   onExportCsv: () => void;
   onExportJson: () => void;
   onOpenGeminiAnalyzer?: () => void;
+  onOpenPdfSummary?: () => void;
+  onOpenMasterHub?: () => void;
+  cachedCount?: number;
+  currentUser?: User | null;
+  onSignIn?: () => Promise<User | null>;
+  onSignOut?: () => Promise<void>;
 }
 
 export const Navbar: React.FC<NavbarProps> = ({
-  totalRows,
-  totalDocs,
+  totalRows: _totalRows,
+  totalDocs: _totalDocs,
   onExportExcel,
   onExportCsv,
   onExportJson,
   onOpenGeminiAnalyzer,
+  onOpenPdfSummary,
+  onOpenMasterHub,
+  cachedCount = 0,
+  currentUser,
+  onSignIn,
+  onSignOut,
 }) => {
   return (
     <header className="bg-slate-900 border-b border-slate-800 text-white sticky top-0 z-30 shadow-md">
@@ -51,13 +64,38 @@ export const Navbar: React.FC<NavbarProps> = ({
             </div>
           </div>
 
-          {/* Action Buttons: AI Analyzer & Exports */}
+          {/* Action Buttons: AI Tools, Master Store, Auth & Exports */}
           <div className="flex items-center gap-2 flex-wrap">
+            {onOpenMasterHub && (
+              <button
+                onClick={onOpenMasterHub}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-amber-500 to-orange-600 hover:from-amber-400 hover:to-orange-500 text-white shadow-md shadow-amber-950/40 border border-amber-300/40 transition-all active:scale-95 cursor-pointer"
+                title="मास्टर सारांश स्टोर र ब्याच जेनरेटर (Firestore + LFS ब्याकअप)"
+              >
+                <Layers className="w-3.5 h-3.5 text-amber-100" />
+                <span>मास्टर स्टोर</span>
+                {cachedCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded bg-slate-950/35 text-[10px] font-bold text-amber-100">
+                    {cachedCount}
+                  </span>
+                )}
+              </button>
+            )}
+            {onOpenPdfSummary && (
+              <button
+                onClick={onOpenPdfSummary}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-950/40 border border-emerald-400/40 transition-all active:scale-95 cursor-pointer"
+                title="AI Powered PDF Summarizer (Gemini 4 Hydrogen)"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                <span>AI PDF सारांश</span>
+              </button>
+            )}
             {onOpenGeminiAnalyzer && (
               <button
                 onClick={onOpenGeminiAnalyzer}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white shadow-md shadow-indigo-950/40 border border-indigo-400/40 transition-all active:scale-95 cursor-pointer ring-1 ring-white/20 animate-pulse hover:animate-none"
-                title="AI Powered Legal Header & Style Analysis (Gemini 3.8 Flash)"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-gradient-to-r from-purple-600 via-indigo-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white shadow-md shadow-indigo-950/40 border border-indigo-400/40 transition-all active:scale-95 cursor-pointer"
+                title="AI Powered Legal Header & Style Analysis (Gemini 4 Hydrogen)"
               >
                 <Sparkles className="w-3.5 h-3.5 text-amber-300" />
                 <span>AI हेडर विश्लेषक</span>
@@ -87,6 +125,29 @@ export const Navbar: React.FC<NavbarProps> = ({
             >
               <span>JSON</span>
             </button>
+
+            {onSignIn && !currentUser && (
+              <button
+                onClick={() => void onSignIn()}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-lg bg-slate-800 hover:bg-slate-700 text-emerald-300 border border-emerald-500/40 transition-all cursor-pointer"
+                title="मास्टर स्टोरमा सारांश सेभ गर्न Google Sign-In गर्नुहोस्"
+              >
+                <LogIn className="w-3.5 h-3.5" />
+                <span>Sign-In</span>
+              </button>
+            )}
+            {currentUser && onSignOut && (
+              <button
+                onClick={() => void onSignOut()}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1.5 text-xs font-medium rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 transition-all cursor-pointer"
+                title={`Signed in as ${currentUser.email || 'User'} — Sign out`}
+              >
+                <span className="max-w-[110px] truncate text-emerald-300 font-semibold">
+                  {currentUser.displayName || currentUser.email || 'Signed In'}
+                </span>
+                <LogOut className="w-3.5 h-3.5 text-slate-400" />
+              </button>
+            )}
           </div>
         </div>
       </div>

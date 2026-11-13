@@ -3,8 +3,8 @@ import {
   X, Sparkles, CheckCircle2, FileText, ArrowRight, RefreshCw, 
   Layers, ExternalLink, ShieldAlert, Cpu, Eye, Check
 } from 'lucide-react';
-import { DocumentSummary, LegalRow } from '../types';
-import { HeaderAnalysisResult } from '../services/geminiHeaderService';
+import type { DocumentSummary, HeaderAnalysisResult } from '../types';
+import { safeFetchJson } from '../utils/safeFetchJson';
 
 interface GeminiHeaderAnalyzerModalProps {
   isOpen: boolean;
@@ -51,9 +51,9 @@ export const GeminiHeaderAnalyzerModal: React.FC<GeminiHeaderAnalyzerModalProps>
 
   const handleRunAnalysis = async () => {
     setLoading(true);
-    setStatusMessage('Gemini 3.8 Flash मोडेल मार्फत कानुनी हेडर र स्टाइल विश्लेषण गरिँदैछ...');
+    setStatusMessage('Gemini 4 Hydrogen मोडेल मार्फत कानुनी हेडर र स्टाइल विश्लेषण गरिँदैछ...');
     try {
-      const res = await fetch('/api/gemini/analyze-headers', {
+      const { ok, data } = await safeFetchJson('/api/gemini/analyze-headers', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -61,10 +61,9 @@ export const GeminiHeaderAnalyzerModal: React.FC<GeminiHeaderAnalyzerModalProps>
           pageNumber: parseInt(selectedPage, 10) || 1,
         }),
       });
-      const data = await res.json();
-      if (data.success) {
+      if (ok && data.success) {
         setResults(data.results || []);
-        setModelUsed(data.modelUsed || 'gemini-3.8-flash');
+        setModelUsed(data.modelUsed || 'gemini-4-hydrogen');
         setStatusMessage(data.message || 'सफलतापूर्वक विश्लेषण सम्पन्न भयो।');
       } else {
         setStatusMessage(data.error || 'विश्लेषण असफल भयो।');
@@ -93,8 +92,8 @@ export const GeminiHeaderAnalyzerModal: React.FC<GeminiHeaderAnalyzerModalProps>
                 <h3 className="font-bold text-base sm:text-lg">
                   Gemini AI कानूनी हेडर पहिचान तथा प्रमाणीकरण
                 </h3>
-                <span className="bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 text-[11px] px-2 py-0.5 rounded-full font-mono">
-                  gemini-3.8-flash
+                <span className="bg-indigo-500/30 text-indigo-200 border border-indigo-400/30 text-[11px] px-2 py-0.5 rounded-md font-mono">
+                  gemini-4-hydrogen
                 </span>
               </div>
               <p className="text-xs text-slate-300 mt-0.5">

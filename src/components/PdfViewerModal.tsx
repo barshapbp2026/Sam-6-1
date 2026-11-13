@@ -1,5 +1,6 @@
 import React from 'react';
-import { X, ExternalLink, Download, FileText, ChevronLeft, ChevronRight } from 'lucide-react';
+import { X, ExternalLink, Download, FileText, ChevronLeft, ChevronRight, Sparkles } from 'lucide-react';
+import { toGitHubRawUrl } from '../utils/urlUtils';
 
 interface PdfViewerModalProps {
   isOpen: boolean;
@@ -7,6 +8,7 @@ interface PdfViewerModalProps {
   pdfPath: string;
   pdfName: string;
   targetPage?: string;
+  onSummarizePdf?: (pdfPath: string, page?: string) => void;
 }
 
 export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
@@ -15,6 +17,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
   pdfPath,
   pdfName,
   targetPage,
+  onSummarizePdf,
 }) => {
   const toDeva = (n: number) => n.toString().replace(/[0-9]/g, d => '०१२३४५६७८९'[parseInt(d, 10)]);
   const toNum = (s: string) => {
@@ -34,7 +37,7 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
 
   if (!isOpen || !pdfPath) return null;
 
-  const rawUrl = `https://raw.githubusercontent.com/barshapbp2026/any-pdf-/main/${encodeURIComponent(pdfPath)}`;
+  const rawUrl = toGitHubRawUrl(pdfPath);
   const proxyUrl = `/api/pdf-proxy?path=${encodeURIComponent(pdfPath)}`;
   // Embed via local/inline proxy with page hash for standard browser PDF viewer
   const iframeUrl = `${proxyUrl}#page=${currentPage}`;
@@ -87,6 +90,17 @@ export const PdfViewerModal: React.FC<PdfViewerModalProps> = ({
                 <ChevronRight className="w-3.5 h-3.5" />
               </button>
             </div>
+
+            {onSummarizePdf && (
+              <button
+                onClick={() => onSummarizePdf(pdfPath, String(currentPage))}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold cursor-pointer transition-colors"
+                title="यस PDF को AI सारांश तयार गर्नुहोस्"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                <span className="hidden sm:inline">AI सारांश</span>
+              </button>
+            )}
 
             <a
               href={rawUrl}

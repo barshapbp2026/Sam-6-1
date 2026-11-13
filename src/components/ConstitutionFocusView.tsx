@@ -45,11 +45,11 @@ export const ConstitutionFocusView: React.FC<ConstitutionFocusViewProps> = ({
     setTimeout(() => setCopiedId(null), 1500);
   };
 
-  // Sample row 1 and row 2 from constitution
-  const sampleRow1 = rows.find(r => r.section_id === '१.' && r.type === 'धारा');
-  const sampleRow2 = rows.find(r => r.section_id === '२.' && r.type === 'धारा');
+  // Sample row 1 and row 2 from prompt
+  const sampleRow1 = rows.find(r => r.section_id === '१.' && r.anusuchi_id === 'अनुसूची-१');
+  const sampleRow2 = rows.find(r => r.section_id === '२.' && !r.anusuchi_id);
 
-  const totalCols = showSubColumns ? 17 : 12;
+  const totalCols = showSubColumns ? 16 : 12;
 
   return (
     <div className="space-y-6">
@@ -255,8 +255,8 @@ export const ConstitutionFocusView: React.FC<ConstitutionFocusViewProps> = ({
                 <th rowSpan={showSubColumns ? 2 : 1} className="p-2.5 text-center border-r border-slate-800 w-16 bg-slate-900 align-middle">६. धारा ID</th>
 
                 {showSubColumns ? (
-                  <th colSpan={6} className="p-2 text-center border-r border-slate-800 bg-indigo-950 text-indigo-200 font-bold">
-                    ७. धारा/दफा/नियम/निर्देशन/बुँदा/अनुसूची Title Name (६ वटा उप-स्तम्भहरू)
+                  <th colSpan={5} className="p-2 text-center border-r border-slate-800 bg-indigo-950 text-indigo-200 font-bold">
+                    ७. धारा/दफा/नियम/निर्देशन/बुँदा Title Name
                   </th>
                 ) : (
                   <th className="p-2.5 border-r border-slate-800 min-w-[200px] bg-slate-900 align-middle">७. धारा Title Name</th>
@@ -274,20 +274,17 @@ export const ConstitutionFocusView: React.FC<ConstitutionFocusViewProps> = ({
                   <th className="p-1.5 text-center border-r border-slate-700 bg-amber-950/80 text-amber-300 min-w-[170px]">
                     ७.१ धारा (Dhara)
                   </th>
-                  <th className="p-1.5 text-center border-r border-slate-700 bg-slate-900 text-slate-400 min-w-[90px]">
+                  <th className="p-1.5 text-center border-r border-slate-700 bg-slate-900 text-slate-400 min-w-[100px]">
                     ७.२ दफा
                   </th>
-                  <th className="p-1.5 text-center border-r border-slate-700 bg-slate-900 text-slate-400 min-w-[90px]">
+                  <th className="p-1.5 text-center border-r border-slate-700 bg-slate-900 text-slate-400 min-w-[100px]">
                     ७.३ नियम
                   </th>
-                  <th className="p-1.5 text-center border-r border-slate-700 bg-slate-900 text-slate-400 min-w-[90px]">
+                  <th className="p-1.5 text-center border-r border-slate-700 bg-slate-900 text-slate-400 min-w-[100px]">
                     ७.४ निर्देशन
                   </th>
-                  <th className="p-1.5 text-center border-r border-slate-700 bg-slate-900 text-slate-400 min-w-[90px]">
+                  <th className="p-1.5 text-center border-r border-slate-700 bg-slate-900 text-slate-400 min-w-[100px]">
                     ७.५ बुँदा
-                  </th>
-                  <th className="p-1.5 text-center border-r border-slate-700 bg-indigo-900 text-indigo-200 min-w-[180px]">
-                    ७.६ अनुसूची (Schedule)
                   </th>
                 </tr>
               )}
@@ -300,7 +297,7 @@ export const ConstitutionFocusView: React.FC<ConstitutionFocusViewProps> = ({
                   <tr
                     key={`const-row-${r.section_id || ''}-${r.anusuchi_id || ''}-${idx}`}
                     className={`hover:bg-indigo-50/40 transition-colors ${
-                      isScheduleRow ? 'bg-indigo-50/30' : idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
+                      isScheduleRow ? 'bg-indigo-50/20' : idx % 2 === 0 ? 'bg-white' : 'bg-slate-50/40'
                     }`}
                   >
                     <td className="p-2.5 text-center border-r border-slate-200 font-bold text-slate-800">{r.folder_id}</td>
@@ -319,14 +316,8 @@ export const ConstitutionFocusView: React.FC<ConstitutionFocusViewProps> = ({
                         {r.pdf_name}
                       </button>
                     </td>
-                    <td className="p-2.5 text-center border-r border-slate-200 font-bold whitespace-nowrap">
-                      {isScheduleRow ? (
-                        <span className="inline-block px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-900 text-[11px] font-bold">
-                          {r.section_id || r.anusuchi_id}
-                        </span>
-                      ) : (
-                        <span className="text-amber-700">{r.section_id || <span className="text-slate-300">-</span>}</span>
-                      )}
+                    <td className="p-2.5 text-center border-r border-slate-200 font-bold text-amber-700">
+                      {r.section_id || <span className="text-slate-300">-</span>}
                     </td>
 
                     {showSubColumns ? (
@@ -338,49 +329,46 @@ export const ConstitutionFocusView: React.FC<ConstitutionFocusViewProps> = ({
                         <td className="p-2 border-r border-slate-200 text-slate-300 text-center">-</td>
                         <td className="p-2 border-r border-slate-200 text-slate-300 text-center">-</td>
                         <td className="p-2 border-r border-slate-200 text-slate-300 text-center">-</td>
-                        <td className={`p-2 border-r border-slate-200 min-w-[200px] ${isScheduleRow ? 'bg-indigo-50/90 font-semibold text-indigo-950' : 'text-slate-300 text-center'}`}>
-                          {isScheduleRow ? (r.title_name || r.anusuchi_title || '-') : '-'}
-                        </td>
                       </>
                     ) : (
                       <td className="p-2.5 border-r border-slate-200 font-semibold text-slate-900 leading-tight">
-                        {r.title_name || r.anusuchi_title || <span className="text-slate-300 italic">-</span>}
+                        {r.title_name || <span className="text-slate-300 italic">-</span>}
                       </td>
                     )}
 
                     <td className="p-2.5 text-center border-r border-slate-200 font-bold text-amber-900">
-                      {(r.title_page || (isScheduleRow ? r.anusuchi_print_page : '')) ? (
+                      {r.title_page ? (
                         <button
-                          onClick={() => onOpenPdf(r.pdf_path, r.title_page || r.anusuchi_print_page)}
+                          onClick={() => onOpenPdf(r.pdf_path, r.title_page)}
                           className="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 transition-colors cursor-pointer text-[11px]"
                           title="PDF मा यो पृष्ठ खोल्नुहोस्"
                         >
-                          {r.title_page || r.anusuchi_print_page}
+                          {r.title_page}
                         </button>
                       ) : (
                         <span className="text-slate-300">-</span>
                       )}
                     </td>
-                    <td className="p-2.5 border-r border-slate-200 font-bold text-indigo-700 whitespace-nowrap">
-                      {(r.anusuchi_id || (isScheduleRow ? r.section_id : '')) ? (
+                    <td className="p-2.5 border-r border-slate-200 font-bold text-indigo-700">
+                      {r.anusuchi_id ? (
                         <span className="inline-block px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-900 text-[11px]">
-                          {r.anusuchi_id || r.section_id}
+                          {r.anusuchi_id}
                         </span>
                       ) : (
                         <span className="text-slate-300">-</span>
                       )}
                     </td>
-                    <td className="p-2.5 border-r border-slate-200 text-slate-800 text-[11px] leading-snug min-w-[200px]">
-                      {r.anusuchi_title || (isScheduleRow ? r.title_name : '') || <span className="text-slate-300">-</span>}
+                    <td className="p-2.5 border-r border-slate-200 text-slate-800 text-[11px] leading-snug">
+                      {r.anusuchi_title || <span className="text-slate-300">-</span>}
                     </td>
                     <td className="p-2.5 text-center border-r border-slate-200 font-bold text-indigo-900">
-                      {(r.anusuchi_print_page || (isScheduleRow ? r.title_page : '')) ? (
+                      {r.anusuchi_print_page ? (
                         <button
-                          onClick={() => onOpenPdf(r.pdf_path, r.anusuchi_print_page || r.title_page)}
+                          onClick={() => onOpenPdf(r.pdf_path, r.anusuchi_print_page)}
                           className="px-1.5 py-0.5 rounded bg-indigo-100 hover:bg-indigo-200 text-indigo-900 transition-colors cursor-pointer text-[11px]"
                           title="PDF मा अनुसूची पृष्ठ खोल्नुहोस्"
                         >
-                          {r.anusuchi_print_page || r.title_page}
+                          {r.anusuchi_print_page}
                         </button>
                       ) : (
                         <span className="text-slate-300">-</span>

@@ -7,6 +7,7 @@ import {
 } from 'lucide-react';
 import { LegalRow, DocumentSummary } from '../types';
 import { exportToExcel, exportToCsv, exportToJson } from '../utils/exportUtils';
+import { toGitHubRawUrl, matchesDocName, rowBelongsToFolder, isAnusuchiRow, compareLegalRows, compareNumericPrefixes } from '../utils/urlUtils';
 
 export type ThemeColor = 'cyan' | 'emerald' | 'amber' | 'rose' | 'indigo' | 'teal' | 'orange' | 'blue' | 'red';
 
@@ -176,6 +177,7 @@ export interface UnifiedFolderViewProps {
   onOpenMdSync?: (filename: string, page?: string) => void;
   onOpenModal: (row: LegalRow, contextList?: LegalRow[]) => void;
   onOpenGeminiAnalyzer: (docPath: string, page?: string) => void;
+  onSummarizePdf?: (docPath: string, page?: string) => void;
 }
 
 export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
@@ -190,38 +192,34 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
   onOpenMdSync,
   onOpenModal,
   onOpenGeminiAnalyzer,
+  onSummarizePdf,
 }) => {
   const styles = themeMap[themeColor] || themeMap.indigo;
 
-  // Filter all rows strictly for this folder (handles single or comma-separated folder_ids without '२.' falsely matching '१२.')
+  // Filter all rows strictly for this folder and sort serially (so १.२ precedes १.३, sections sort numerically, etc.)
   const folderRows = useMemo(() => {
-    return allRows.filter(r => {
-      if (r.folder_id === folderId) return true;
-      if (r.folder_id) {
-        const ids = r.folder_id.split(',').map(s => s.trim());
-        if (ids.includes(folderId)) return true;
-      }
-      if (r.folder_name === folderName || r.folder_name?.startsWith(folderId + ' ')) return true;
-      if (folderId === '१.' && (r.pdf_name?.includes('संबिधान') || r.pdf_name?.includes('संविधान') || r.pdf_name?.includes('अपराध संहिता') || r.pdf_name?.includes('देवानी संहिता') || r.pdf_name?.includes('फौजदारी कार्यविधि'))) return true;
-      return false;
-    });
+    return allRows
+      .filter(r => rowBelongsToFolder(r, folderId, folderName))
+      .sort(compareLegalRows);
   }, [allRows, folderId, folderName]);
 
-  // Documents for this folder
+  // Documents for this folder (sorted serially by filename prefix)
   const folderDocs = useMemo(() => {
-    return documents.filter(d => {
-      if (d.folderId === folderId) return true;
-      if (d.folderId) {
-        const ids = d.folderId.split(',').map(s => s.trim());
-        if (ids.includes(folderId)) return true;
-      }
-      if (d.folderName === folderName || d.folderName?.startsWith(folderId + ' ')) return true;
-      if (folderId === '१.' && (d.filename?.includes('संबिधान') || d.filename?.includes('संविधान') || d.filename?.includes('अपराध संहिता') || d.filename?.includes('देवानी संहिता') || d.filename?.includes('फौजदारी कार्यविधि'))) return true;
-      return false;
-    });
+    return documents
+      .filter(d => {
+        if (d.folderId === folderId) return true;
+        if (d.folderId) {
+          const ids = d.folderId.split(',').map(s => s.trim());
+          if (ids.includes(folderId)) return true;
+        }
+        if (d.folderName === folderName || d.folderName?.startsWith(folderId + ' ')) return true;
+        if (folderId === '१.' && (d.filename?.includes('संबिधान') || d.filename?.includes('संविधान') || d.filename?.includes('अपराध संहिता') || d.filename?.includes('देवानी संहिता') || d.filename?.includes('फौजदारी कार्यविधि'))) return true;
+        return false;
+      })
+      .sort((a, b) => compareNumericPrefixes(a.filename, b.filename));
   }, [documents, folderId, folderName]);
 
-  // Extract all subfolders in this folder
+  // Extract all subfolders in this folder (sorted numerically)
   const subfolders = useMemo(() => {
     const set = new Set<string>();
     folderDocs.forEach(d => {
@@ -229,7 +227,7 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
         set.add(d.subfolderName);
       }
     });
-    return Array.from(set).sort();
+    return Array.from(set).sort(compareNumericPrefixes);
   }, [folderDocs]);
 
   // States
@@ -237,6 +235,8 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
   const [selectedDoc, setSelectedDoc] = useState<string>('all');
   const [searchTerm, setSearchTerm] = useState<string>('');
   const [typeFilter, setTypeFilter] = useState<'all' | 'दफा' | 'अनुसूची'>('all');
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(100);
 
   // Filtered rows
   const filteredRows = useMemo(() => {
@@ -248,41 +248,48 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
 
       // Document filter
       if (selectedDoc !== 'all') {
-        const normSelected = selectedDoc.replace(/^\d+(\.\d+)*\.\s*/, '').trim();
-        const normPdf = r.pdf_name.replace(/^\d+(\.\d+)*\.\s*/, '').trim();
-        const isMatch = r.pdf_name === selectedDoc || normPdf === normSelected || r.pdf_name.includes(normSelected) || selectedDoc.includes(normPdf);
-        if (!isMatch) return false;
+        if (!matchesDocName(r.pdf_name, selectedDoc)) return false;
       }
 
       // Type filter
       if (typeFilter !== 'all') {
-        if (typeFilter === 'अनुसूची' && !r.anusuchi_id && r.type !== 'अनुसूची') return false;
-        if (typeFilter === 'दफा' && (r.anusuchi_id || r.type === 'अनुसूची')) return false;
+        if (typeFilter === 'अनुसूची' && !isAnusuchiRow(r)) return false;
+        if (typeFilter === 'दफा' && isAnusuchiRow(r)) return false;
       }
 
       // Search term
       if (!searchTerm) return true;
       const q = searchTerm.toLowerCase().trim();
-      const normQ = q.replace(/संबिधान/g, 'संविधान').replace(/सम्बन्िी/g, 'सम्बन्धी');
-      
-      const searchFields = [
-        r.section_id,
-        r.title_name,
-        r.title_page,
-        r.anusuchi_id,
-        r.anusuchi_title,
-        r.anusuchi_print_page,
-        r.pdf_name,
-        r.subfolder_name || ''
-      ].map(f => f.toLowerCase().replace(/संबिधान/g, 'संविधान').replace(/सम्बन्िी/g, 'सम्बन्धी'));
-
-      return searchFields.some(f => f.includes(normQ));
+      return (
+        r.section_id.toLowerCase().includes(q) ||
+        r.title_name.toLowerCase().includes(q) ||
+        r.title_page.toLowerCase().includes(q) ||
+        r.anusuchi_id.toLowerCase().includes(q) ||
+        r.anusuchi_title.toLowerCase().includes(q) ||
+        r.anusuchi_print_page.toLowerCase().includes(q) ||
+        r.pdf_name.toLowerCase().includes(q) ||
+        (r.subfolder_name && r.subfolder_name.toLowerCase().includes(q))
+      );
     });
   }, [folderRows, selectedSubfolder, selectedDoc, typeFilter, searchTerm]);
 
+  React.useEffect(() => {
+    setCurrentPage(1);
+  }, [selectedSubfolder, selectedDoc, typeFilter, searchTerm]);
+
+  const effectivePageSize = pageSize === 0 ? Math.max(1, filteredRows.length) : pageSize;
+  const totalPages = Math.max(1, Math.ceil(filteredRows.length / effectivePageSize));
+  const safePage = Math.min(currentPage, totalPages);
+
+  const displayedRows = useMemo(() => {
+    if (pageSize === 0) return filteredRows;
+    const start = (safePage - 1) * pageSize;
+    return filteredRows.slice(start, start + pageSize);
+  }, [filteredRows, safePage, pageSize]);
+
   // Compute row spans for consecutive rows with identical folder, subfolder, PDF, section, or anusuchi values
   const rowSpans = useMemo(() => {
-    const list = filteredRows;
+    const list = displayedRows;
     const pdfSpans: { isFirst: boolean; rowSpan: number }[] = new Array(list.length);
     const subfolderSpans: { isFirst: boolean; rowSpan: number }[] = new Array(list.length);
     const folderSpans: { isFirst: boolean; rowSpan: number }[] = new Array(list.length);
@@ -386,19 +393,11 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
     }
 
     return { pdfSpans, subfolderSpans, folderSpans, sectionSpans, anusuchiSpans };
-  }, [filteredRows]);
+  }, [displayedRows]);
 
   // Total counts
-  const totalSections = useMemo(() => folderRows.filter(r => r.type !== 'अनुसूची' && r.section_id).length, [folderRows]);
-  const totalSchedules = useMemo(() => {
-    // Count unique schedule IDs
-    const seen = new Set();
-    folderRows.forEach(r => {
-      const schId = r.anusuchi_id || (r.type === 'अनुसूची' ? r.section_id : '');
-      if (schId) seen.add(schId);
-    });
-    return seen.size;
-  }, [folderRows]);
+  const totalSections = useMemo(() => folderRows.filter(r => r.section_id && !isAnusuchiRow(r)).length, [folderRows]);
+  const totalSchedules = useMemo(() => folderRows.filter(r => isAnusuchiRow(r)).length, [folderRows]);
   const totalSizeKB = useMemo(() => folderDocs.reduce((acc, d) => acc + (d.size || 0), 0) / 1024, [folderDocs]);
 
   const toDevaNum = (n: number | string) => {
@@ -482,6 +481,23 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
 
           {/* Action Buttons */}
           <div className="flex flex-col sm:flex-row md:flex-col gap-2 shrink-0">
+            {onSummarizePdf && (
+              <button
+                onClick={() => {
+                  const targetDoc =
+                    (selectedDoc !== 'all'
+                      ? folderDocs.find(d => d.filename === selectedDoc)
+                      : undefined) || folderDocs[0];
+                  if (targetDoc) {
+                    onSummarizePdf(targetDoc.path);
+                  }
+                }}
+                className="inline-flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white font-semibold text-xs shadow-lg shadow-emerald-950/40 border border-emerald-400/40 transition-all active:scale-95 cursor-pointer"
+              >
+                <Sparkles className="w-4 h-4 text-amber-200" />
+                <span>AI PDF सारांश (Gemini)</span>
+              </button>
+            )}
             <button
               onClick={() => {
                 const sampleDoc = folderDocs[0];
@@ -605,10 +621,10 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-3">
           {folderDocs.map((doc, docIdx) => {
             const isSelected = selectedDoc === doc.filename;
-            const docRows = folderRows.filter(r => r.pdf_name === doc.filename);
-            const dafaCount = docRows.filter(r => r.section_id && !r.anusuchi_id).length;
-            const anusCount = docRows.filter(r => r.anusuchi_id).length;
-            const rawUrl = `https://raw.githubusercontent.com/barshapbp2026/any-pdf-/main/${encodeURIComponent(doc.path)}`;
+            const docRows = folderRows.filter(r => matchesDocName(r.pdf_name, doc.filename));
+            const dafaCount = docRows.filter(r => r.section_id && !isAnusuchiRow(r)).length;
+            const anusCount = docRows.filter(r => isAnusuchiRow(r)).length;
+            const rawUrl = toGitHubRawUrl(doc.path);
 
             return (
               <div
@@ -654,6 +670,16 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
                     )}
                   </div>
                   <div className="flex items-center gap-1" onClick={e => e.stopPropagation()}>
+                    {onSummarizePdf && (
+                      <button
+                        onClick={() => onSummarizePdf(doc.path)}
+                        className="px-2 py-1 rounded bg-emerald-50 hover:bg-emerald-100 text-emerald-700 font-semibold text-[10px] flex items-center gap-1 transition-colors cursor-pointer"
+                        title="यस PDF को AI सारांश हेर्नुहोस्"
+                      >
+                        <Sparkles className="w-3 h-3" />
+                        <span>सार</span>
+                      </button>
+                    )}
                     {onOpenMdSync && (
                       <button
                         onClick={() => onOpenMdSync(doc.filename, '1')}
@@ -703,7 +729,7 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
           >
             <option value="all">सबै {toDevaNum(folderDocs.length)} कागजातहरू ({toDevaNum(folderRows.length)} रेकर्ड)</option>
             {folderDocs.map(d => {
-              const count = folderRows.filter(r => r.pdf_name === d.filename).length;
+              const count = folderRows.filter(r => matchesDocName(r.pdf_name, d.filename)).length;
               return (
                 <option key={d.path} value={d.filename}>
                   {d.filename.replace('.pdf', '')} ({toDevaNum(count)} रेकर्ड)
@@ -820,31 +846,32 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredRows.map((row, idx) => {
-                  const isAnusuchi = !!row.anusuchi_id;
+                displayedRows.map((row, idx) => {
+                  const isAnusuchi = isAnusuchiRow(row) || !!row.anusuchi_id;
                   const fSpan = rowSpans.folderSpans[idx];
                   const sfSpan = rowSpans.subfolderSpans[idx];
                   const secSpan = rowSpans.sectionSpans[idx];
                   const aSpan = rowSpans.anusuchiSpans[idx];
                   const pSpan = rowSpans.pdfSpans[idx];
+                  const serialNo = (pageSize === 0 ? 0 : (safePage - 1) * pageSize) + idx + 1;
 
                   return (
                     <tr
-                      key={`${row.folder_id}-${row.pdf_name}-${row.section_id}-${row.anusuchi_id}-${idx}`}
+                      key={`${row.folder_id}-${row.pdf_name}-${row.section_id}-${row.anusuchi_id}-${serialNo}`}
                       onClick={() => onOpenModal(row, folderRows)}
                       className={`${styles.tableHover} cursor-pointer transition-colors ${
                         isAnusuchi ? 'bg-purple-50/20' : ''
                       }`}
                     >
-                      <td className="py-2.5 px-3 text-center text-slate-500 font-mono">
-                        {toDevaNum(idx + 1)}
+                      <td className="py-2.5 px-3 text-center text-slate-500 font-mono whitespace-nowrap">
+                        {toDevaNum(serialNo)}
                       </td>
 
                       {/* Column 1: Folder ID (Merged) */}
                       {fSpan?.isFirst && (
                         <td 
                           rowSpan={fSpan.rowSpan}
-                          className="py-2.5 px-3 font-mono font-semibold text-slate-800 align-top bg-slate-50/70 border-r border-slate-200"
+                          className="py-2.5 px-3 font-mono font-semibold text-slate-800 align-top bg-slate-50/70 border-r border-slate-200 whitespace-nowrap"
                         >
                           {row.folder_id}
                         </td>
@@ -854,7 +881,7 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
                       {sfSpan?.isFirst && (
                         <td 
                           rowSpan={sfSpan.rowSpan}
-                          className="py-2.5 px-3 font-mono text-slate-600 text-[11px] align-top bg-slate-50/50 border-r border-slate-200"
+                          className="py-2.5 px-3 font-mono text-slate-600 text-[11px] align-top bg-slate-50/50 border-r border-slate-200 whitespace-nowrap"
                         >
                           {row.subfolder_id || '-'}
                         </td>
@@ -864,15 +891,9 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
                       {secSpan?.isFirst && (
                         <td 
                           rowSpan={secSpan.rowSpan}
-                          className={`py-2.5 px-3 font-mono font-bold ${styles.titleText} ${secSpan.rowSpan > 1 ? 'align-top bg-slate-50/30' : ''}`}
+                          className={`py-2.5 px-3 font-mono font-bold whitespace-nowrap ${styles.titleText} ${secSpan.rowSpan > 1 ? 'align-top bg-slate-50/30' : ''}`}
                         >
-                          {row.type === 'अनुसूची' ? (
-                            <span className="inline-block px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-900 text-[11px] font-bold">
-                              {row.section_id || row.anusuchi_id}
-                            </span>
-                          ) : (
-                            row.section_id || '-'
-                          )}
+                          {row.section_id || '-'}
                         </td>
                       )}
 
@@ -880,10 +901,10 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
                       {secSpan?.isFirst && (
                         <td 
                           rowSpan={secSpan.rowSpan}
-                          className={`py-2.5 px-3 font-medium text-slate-900 ${secSpan.rowSpan > 1 ? 'align-top bg-slate-50/30' : ''}`}
+                          className={`py-2.5 px-3 w-auto max-w-md whitespace-normal break-words font-['Mukta','Noto_Sans_Devanagari',sans-serif] font-semibold text-slate-900 text-xs tracking-wide antialiased leading-relaxed ${secSpan.rowSpan > 1 ? 'align-top bg-slate-50/30' : ''}`}
                         >
-                          {row.title_name || row.anusuchi_title ? (
-                            <span>{row.title_name || row.anusuchi_title}</span>
+                          {row.title_name ? (
+                            <span>{row.title_name}</span>
                           ) : (
                             <span className="text-slate-300 italic">-</span>
                           )}
@@ -894,9 +915,9 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
                       {secSpan?.isFirst && (
                         <td 
                           rowSpan={secSpan.rowSpan}
-                          className={`py-2.5 px-3 text-center font-mono text-slate-700 ${secSpan.rowSpan > 1 ? 'align-top bg-slate-50/30' : ''}`}
+                          className={`py-2.5 px-3 text-center font-mono text-slate-700 whitespace-nowrap ${secSpan.rowSpan > 1 ? 'align-top bg-slate-50/30' : ''}`}
                         >
-                          {row.title_page || row.anusuchi_print_page || '-'}
+                          {row.title_page || '-'}
                         </td>
                       )}
 
@@ -904,11 +925,11 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
                       {aSpan?.isFirst && (
                         <td 
                           rowSpan={aSpan.rowSpan}
-                          className={`py-2.5 px-3 font-mono font-bold text-purple-700 ${aSpan.rowSpan > 1 ? 'align-top bg-slate-50/30' : ''}`}
+                          className={`py-2.5 px-3 font-mono font-bold text-purple-700 whitespace-nowrap ${aSpan.rowSpan > 1 ? 'align-top bg-slate-50/30' : ''}`}
                         >
-                          {(row.anusuchi_id || (row.type === 'अनुसूची' ? row.section_id : '')) ? (
-                            <span className="px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 text-[11px]">
-                              {row.anusuchi_id || row.section_id}
+                          {row.anusuchi_id ? (
+                            <span className="inline-block px-1.5 py-0.5 rounded bg-purple-100 text-purple-800 text-[11px] whitespace-nowrap">
+                              {row.anusuchi_id}
                             </span>
                           ) : (
                             <span className="text-slate-300">-</span>
@@ -922,8 +943,8 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
                           rowSpan={aSpan.rowSpan}
                           className={`py-2.5 px-3 font-medium text-purple-950 ${aSpan.rowSpan > 1 ? 'align-top bg-slate-50/30' : ''}`}
                         >
-                          {row.anusuchi_title || (row.type === 'अनुसूची' ? row.title_name : '') ? (
-                            <span>{row.anusuchi_title || (row.type === 'अनुसूची' ? row.title_name : '')}</span>
+                          {row.anusuchi_title ? (
+                            <span>{row.anusuchi_title}</span>
                           ) : (
                             <span className="text-slate-300 italic">-</span>
                           )}
@@ -934,9 +955,9 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
                       {aSpan?.isFirst && (
                         <td 
                           rowSpan={aSpan.rowSpan}
-                          className={`py-2.5 px-3 text-center font-mono text-purple-800 font-semibold ${aSpan.rowSpan > 1 ? 'align-top bg-slate-50/30' : ''}`}
+                          className={`py-2.5 px-3 text-center font-mono text-purple-800 font-semibold whitespace-nowrap ${aSpan.rowSpan > 1 ? 'align-top bg-slate-50/30' : ''}`}
                         >
-                          {row.anusuchi_print_page || (row.type === 'अनुसूची' ? row.title_page : '') || '-'}
+                          {row.anusuchi_print_page || '-'}
                         </td>
                       )}
 
@@ -966,7 +987,7 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
                           </button>
                           {onOpenMdSync && (
                             <button
-                              onClick={() => onOpenMdSync(row.pdf_name, row.section_id || row.anusuchi_id || '1')}
+                              onClick={() => onOpenMdSync(row.pdf_name, row.anusuchi_print_page || row.title_page || '1')}
                               className="p-1 rounded hover:bg-indigo-100 text-indigo-600 transition-colors"
                               title="MD + PDF सिंक हेर्नुहोस्"
                             >
@@ -988,9 +1009,61 @@ export const UnifiedFolderView: React.FC<UnifiedFolderViewProps> = ({
               )}
             </tbody>
           </table>
-          {filteredRows.length > 300 && (
-            <div className="p-3 text-center text-xs text-slate-500 bg-slate-50 border-t border-slate-200">
-              पूर्ण डेटा देखाइँदैछ (कुल {toDevaNum(filteredRows.length)} रेकर्डहरू)। पूर्ण डेटा हेर्न खोज वा कागजात फिल्टर गर्नुहोस् वा Excel मा निर्यात गर्नुहोस्।
+          {filteredRows.length > 0 && (
+            <div className="px-4 py-3 text-xs text-slate-600 bg-slate-50 border-t border-slate-200 flex flex-col sm:flex-row items-center justify-between gap-3">
+              <div>
+                देखाउँदै: <strong>{toDevaNum((pageSize === 0 ? 0 : (safePage - 1) * pageSize) + 1)}</strong> देखि <strong>{toDevaNum(pageSize === 0 ? filteredRows.length : Math.min(safePage * pageSize, filteredRows.length))}</strong> सम्म (जम्मा: <strong>{toDevaNum(filteredRows.length)}</strong> रेकर्डहरू)
+              </div>
+              <div className="flex items-center gap-2 flex-wrap">
+                <label className="flex items-center gap-1.5 text-slate-500">
+                  <span>प्रति पृष्ठ:</span>
+                  <select
+                    value={pageSize}
+                    onChange={e => { setPageSize(Number(e.target.value)); setCurrentPage(1); }}
+                    className="bg-white border border-slate-300 rounded-md px-2 py-1 text-xs font-medium text-slate-800"
+                  >
+                    <option value={100}>१००</option>
+                    <option value={200}>२००</option>
+                    <option value={500}>५००</option>
+                    <option value={0}>सबै ({toDevaNum(filteredRows.length)})</option>
+                  </select>
+                </label>
+                {pageSize !== 0 && totalPages > 1 && (
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => setCurrentPage(1)}
+                      disabled={safePage === 1}
+                      className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+                    >
+                      पहिलो
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                      disabled={safePage === 1}
+                      className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+                    >
+                      अघिल्लो
+                    </button>
+                    <span className="px-2 py-1 font-mono font-bold text-slate-800">
+                      {toDevaNum(safePage)} / {toDevaNum(totalPages)}
+                    </span>
+                    <button
+                      onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
+                      disabled={safePage === totalPages}
+                      className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+                    >
+                      अर्को
+                    </button>
+                    <button
+                      onClick={() => setCurrentPage(totalPages)}
+                      disabled={safePage === totalPages}
+                      className="px-2 py-1 rounded border border-slate-300 bg-white hover:bg-slate-100 disabled:opacity-40 cursor-pointer"
+                    >
+                      अन्तिम
+                    </button>
+                  </div>
+                )}
+              </div>
             </div>
           )}
         </div>

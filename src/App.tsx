@@ -1,4 +1,6 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useCallback } from 'react';
+import { onAuthStateChanged, signInWithPopup, signOut, User } from 'firebase/auth';
+import { auth, googleProvider } from './firebase';
 import { Navbar } from './components/Navbar';
 import { UnifiedFolderView, ThemeColor } from './components/UnifiedFolderView';
 import { TenColumnTable } from './components/TenColumnTable';
@@ -7,8 +9,21 @@ import { TenColumnModal } from './components/TenColumnModal';
 import { PdfViewerModal } from './components/PdfViewerModal';
 import { MarkdownPdfSyncView } from './components/MarkdownPdfSyncView';
 import { GeminiHeaderAnalyzerModal } from './components/GeminiHeaderAnalyzerModal';
+import { PdfSummaryModal } from './components/PdfSummaryModal';
+import { MasterSummaryHubModal } from './components/MasterSummaryHubModal';
 import { exportToExcel, exportToCsv, exportToJson } from './utils/exportUtils';
-import { LegalRow, DocumentSummary } from './types';
+import {
+  LegalRow,
+  DocumentSummary,
+  StoredPdfSummaryRecord,
+  StoredDafaSummaryRecord,
+} from './types';
+import { isAnusuchiRow } from './utils/urlUtils';
+import { toDeva } from './utils/markdownUtils';
+import {
+  listAllCachedPdfSummaries,
+  listAllCachedDafaSummaries,
+} from './services/firestoreSummaryStore';
 
 // Pre-compiled verified datasets from barshapbp2026/any-pdf-
 import allRowsData from './data/all_rows.json';
@@ -38,7 +53,7 @@ const FOLDERS_CONFIG: FolderConfig[] = [
     shortLabel: '१. संबिधान र मुलुकी संहिता',
     themeColor: 'red',
     icon: <BookOpen className="w-4 h-4 text-rose-300" />,
-    description: 'नेपालको संबिधान (२०७२), मुलुकी अपराध संहिता २०७४, र मुलुकी देवानी संहिता ऐन २०७४ सहित ६ प्रमुख संहिताहरूको सम्पूर्ण १,९६२ रेकर्डहरू र ३१८ अनुसूचीहरूको प्रमाणित संकलन।',
+    description: 'नेपालको संबिधान (२०७२), मुलुकी अपराध संहिता २०७४, मुलुकी देवानी संहिता २०७४ र फौजदारी कार्यविधि संहिता तथा नियमावलीका १,६४२ धारा/दफा तथा २३८ अनुसूचीहरूको पूर्ण प्रमाणित संकलन।',
   },
   {
     id: 'folder-2',
@@ -65,7 +80,7 @@ const FOLDERS_CONFIG: FolderConfig[] = [
     shortLabel: '४. नियमावली',
     themeColor: 'orange',
     icon: <BookMarked className="w-4 h-4 text-orange-300" />,
-    description: 'उखडा सम्बन्धी नियमहरू २०२१, जग्गा नाप जाँच नियमावली २०५८, भूउपयोग नियमावली २०७९, र मालपोत नियमावली २०३६ का ४ नियमावलीहरूको २६१ रेकर्डहरू।',
+    description: 'उखडा सम्बन्धी नियमहरू २०२१, जग्गा नाप जाँच नियमावली २०५८, भूउपयोग नियमावली २०७९, र मालपोत नियमावली २०३६ का ४ नियमावलीहरूको २०५ रेकर्डहरू (१५९ नियम र ४६ अनुसूची)।',
   },
   {
     id: 'folder-5',
@@ -74,7 +89,7 @@ const FOLDERS_CONFIG: FolderConfig[] = [
     shortLabel: '५. निर्देशिका',
     themeColor: 'teal',
     icon: <Compass className="w-4 h-4 text-teal-300" />,
-    description: 'भूमि प्रशासन निर्देशिका २०८१ र जग्गा नापजाँच तथा नक्सा स्रेस्ता अद्यावधिक निर्देशिका २०८१ (सब-फोल्डर ५.१, ५.२) को ५२१ रेकर्डहरूको पूर्ण विवरण।',
+    description: 'भूमि प्रशासन निर्देशिका २०८१ र जग्गा नापजाँच तथा नक्सा स्रेस्ता अद्यावधिक निर्देशिका २०८१ (सब-फोल्डर ५.१, ५.२) को ५८५ रेकर्डहरूको पूर्ण विवरण।',
   },
   {
     id: 'folder-8',
@@ -83,7 +98,7 @@ const FOLDERS_CONFIG: FolderConfig[] = [
     shortLabel: '८. अख्तियार',
     themeColor: 'indigo',
     icon: <Scale className="w-4 h-4 text-indigo-300" />,
-    description: 'अख्तियार दुरुपयोग अनुसन्धान आयोग र भ्रष्टाचार निवारण ऐन २०५९ का ४१ दफाहरूको प्रमाणित संकलन।',
+    description: 'अख्तियार दुरुपयोग अनुसन्धान आयोग र भ्रष्टाचार निवारण ऐन २०५९ का ७७ दफाहरूको प्रमाणित संकलन।',
   },
   {
     id: 'folder-9',
@@ -92,7 +107,7 @@ const FOLDERS_CONFIG: FolderConfig[] = [
     shortLabel: '९. भुमि समस्या समिति',
     themeColor: 'rose',
     icon: <Users className="w-4 h-4 text-rose-300" />,
-    description: 'भूमि समस्या समाधान आयोग गठन आदेश, जग्गा उपलब्ध गराउने कार्यविधि, लगत सम्बन्धी निर्देशिका, र मापदण्डका ६ प्रमुख दस्ताबेजहरूको १३२ रेकर्डहरू।',
+    description: 'भूमि समस्या समाधान आयोग गठन आदेश, जग्गा उपलब्ध गराउने कार्यविधि, लगत सम्बन्धी निर्देशिका, र मापदण्डका ६ प्रमुख दस्ताबेजहरूको १३५ रेकर्डहरू।',
   },
   {
     id: 'folder-10',
@@ -110,7 +125,7 @@ const FOLDERS_CONFIG: FolderConfig[] = [
     shortLabel: '११. जोड्नु पर्ने कानुन',
     themeColor: 'emerald',
     icon: <Award className="w-4 h-4 text-emerald-300" />,
-    description: 'भूमि समस्या समाधान आयोग (सब-फोल्डर ११.१ • भुमि आयोग हाल) का १६ वटा ऐन, अध्यादेश, निर्देशिका, गठन आदेश र कार्यविधिहरूको ९१९ प्रमाणित रेकर्डहरूको पूर्ण संकलन।',
+    description: 'भूमि समस्या समाधान आयोग (सब-फोल्डर ११.१ • भुमि आयोग हाल) का १५ वटा ऐन, अध्यादेश, निर्देशिका, गठन आदेश र कार्यविधिहरूको ८९५ प्रमाणित रेकर्डहरूको पूर्ण संकलन।',
   },
   {
     id: 'folder-12',
@@ -119,7 +134,7 @@ const FOLDERS_CONFIG: FolderConfig[] = [
     shortLabel: '१२. मालपोत नापी',
     themeColor: 'cyan',
     icon: <Compass className="w-4 h-4 text-cyan-300" />,
-    description: 'जग्गा नापजाँच ऐन तथा नियमावली, मालपोत ऐन तथा नियमावली, भूउपयोग ऐन तथा नियमावली, र भूमि प्रशासन निर्देशिका सम्बन्धी ८ मूल दस्तावेजहरू (९३६ रेकर्ड)।',
+    description: 'जग्गा नापजाँच ऐन तथा नियमावली, मालपोत ऐन तथा नियमावली, भूउपयोग ऐन तथा नियमावली, र भूमि प्रशासन निर्देशिका सम्बन्धी ९ मूल दस्तावेजहरू (९३९ रेकर्ड)।',
   },
 ];
 
@@ -128,6 +143,15 @@ export default function App() {
   const constitutionRows: LegalRow[] = constitutionRowsData as LegalRow[];
   const documents: DocumentSummary[] = documentsSummaryData as DocumentSummary[];
 
+  const totalSectionCount = useMemo(
+    () => allRows.filter(r => !isAnusuchiRow(r) && !!r.section_id).length,
+    [allRows]
+  );
+  const totalScheduleCount = useMemo(
+    () => allRows.filter(r => isAnusuchiRow(r)).length,
+    [allRows]
+  );
+
   // Navigation tab state - serial order default 'folder-1'
   const [activeTab, setActiveTab] = useState<string>('folder-1');
 
@@ -135,6 +159,11 @@ export default function App() {
   const [geminiAnalyzerOpen, setGeminiAnalyzerOpen] = useState(false);
   const [geminiDocPath, setGeminiDocPath] = useState('pdfs/१. संबिधान र मुलुकी संहिता/१.१. नेपालको संबिधान (२०७२-०६-०३).pdf');
   const [geminiPage, setGeminiPage] = useState('१');
+
+  // Gemini PDF Summary state
+  const [pdfSummaryOpen, setPdfSummaryOpen] = useState(false);
+  const [summaryDocPath, setSummaryDocPath] = useState('pdfs/१. संबिधान र मुलुकी संहिता/१.१. नेपालको संबिधान (२०७२-०६-०३).pdf');
+  const [summaryPage, setSummaryPage] = useState('');
 
   // MD + PDF Sync navigation context
   const [mdSyncDoc, setMdSyncDoc] = useState<string>('१.१. नेपालको संबिधान (२०७२-०६-०३).pdf');
@@ -153,6 +182,77 @@ export default function App() {
 
   // Pre-selected document filter when user clicks from Directory
   const [selectedDocFilter, setSelectedDocFilter] = useState<string>('all');
+
+  // Firebase Auth & Firestore Master Summary Store state
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [masterHubOpen, setMasterHubOpen] = useState<boolean>(false);
+  const [cachedPdfSummaries, setCachedPdfSummaries] = useState<StoredPdfSummaryRecord[]>([]);
+  const [cachedDafaSummaries, setCachedDafaSummaries] = useState<StoredDafaSummaryRecord[]>([]);
+
+  const cachedDafaMap = useMemo(() => {
+    const map = new Map<string, StoredDafaSummaryRecord>();
+    for (const item of cachedDafaSummaries) {
+      map.set(item.docId, item);
+    }
+    return map;
+  }, [cachedDafaSummaries]);
+
+  const refreshMasterStore = useCallback(async () => {
+    try {
+      const [pdfs, dafas] = await Promise.all([
+        listAllCachedPdfSummaries(),
+        listAllCachedDafaSummaries(),
+      ]);
+      setCachedPdfSummaries(pdfs);
+      setCachedDafaSummaries(dafas);
+    } catch {
+      // Gracefully ignore offline/initial transient read failures
+    }
+  }, []);
+
+  useEffect(() => {
+    const unsub = onAuthStateChanged(auth, user => {
+      setCurrentUser(user);
+    });
+    void refreshMasterStore();
+    return () => unsub();
+  }, [refreshMasterStore]);
+
+  const handleSignIn = useCallback(async (): Promise<User | null> => {
+    try {
+      const cred = await signInWithPopup(auth, googleProvider);
+      return cred.user;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  const handleSignOut = useCallback(async (): Promise<void> => {
+    await signOut(auth);
+  }, []);
+
+  const handlePdfSaved = useCallback((record: StoredPdfSummaryRecord) => {
+    setCachedPdfSummaries(prev => {
+      const idx = prev.findIndex(p => p.docId === record.docId);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = record;
+        return next;
+      }
+      return [record, ...prev];
+    });
+  }, []);
+
+  const handleDafasSaved = useCallback((records: StoredDafaSummaryRecord[]) => {
+    if (records.length === 0) return;
+    setCachedDafaSummaries(prev => {
+      const map = new Map<string, StoredDafaSummaryRecord>(prev.map(r => [r.docId, r]));
+      for (const r of records) {
+        map.set(r.docId, r);
+      }
+      return Array.from(map.values());
+    });
+  }, []);
 
   // Open 10-column Modal
   const handleOpenModal = (row: LegalRow, contextList?: LegalRow[]) => {
@@ -210,6 +310,13 @@ export default function App() {
     setGeminiAnalyzerOpen(true);
   };
 
+  // Open Gemini PDF Summary modal
+  const handleOpenPdfSummary = (docPath: string, page: string = '') => {
+    setSummaryDocPath(docPath);
+    setSummaryPage(page);
+    setPdfSummaryOpen(true);
+  };
+
   // Exports
   const handleExportExcelAll = (customRows?: LegalRow[]) => {
     const target = customRows || allRows;
@@ -240,6 +347,12 @@ export default function App() {
         onExportCsv={() => handleExportCsvAll()}
         onExportJson={handleExportJsonAll}
         onOpenGeminiAnalyzer={() => handleOpenGeminiAnalyzer('pdfs/१. संबिधान र मुलुकी संहिता/१.१. नेपालको संबिधान (२०७२-०६-०३).pdf', '१')}
+        onOpenPdfSummary={() => handleOpenPdfSummary('pdfs/१. संबिधान र मुलुकी संहिता/१.१. नेपालको संबिधान (२०७२-०६-०३).pdf')}
+        onOpenMasterHub={() => setMasterHubOpen(true)}
+        cachedCount={cachedPdfSummaries.length + cachedDafaSummaries.length}
+        currentUser={currentUser}
+        onSignIn={handleSignIn}
+        onSignOut={handleSignOut}
       />
 
       {/* Main Container */}
@@ -321,6 +434,7 @@ export default function App() {
             onOpenMdSync={handleOpenInMdSync}
             onOpenModal={handleOpenModal}
             onOpenGeminiAnalyzer={handleOpenGeminiAnalyzer}
+            onSummarizePdf={handleOpenPdfSummary}
           />
         )}
 
@@ -332,6 +446,7 @@ export default function App() {
             onOpenModal={r => handleOpenModal(r, allRows)}
             onOpenPdf={handleOpenPdf}
             onOpenMdSync={handleOpenInMdSync}
+            onSummarizePdf={handleOpenPdfSummary}
             selectedDocFilter={selectedDocFilter}
             onClearDocFilter={() => setSelectedDocFilter('all')}
             onExportExcel={filtered => handleExportExcelAll(filtered)}
@@ -347,6 +462,7 @@ export default function App() {
             initialDocFilename={mdSyncDoc}
             initialPage={mdSyncPage}
             onOpen10ColumnTable={handleSelectDocFromDirectory}
+            onSummarizePdf={handleOpenPdfSummary}
           />
         )}
 
@@ -357,6 +473,7 @@ export default function App() {
             onSelectDoc={handleSelectDocFromDirectory}
             onOpenPdf={handleOpenPdf}
             onOpenMdSync={handleOpenInMdSync}
+            onSummarizePdf={handleOpenPdfSummary}
           />
         )}
       </main>
@@ -372,7 +489,10 @@ export default function App() {
           hasPrev={modalRowIndex > 0}
           hasNext={modalRowIndex < activeRowsContext.length - 1}
           onOpenPdfViewer={handleOpenPdf}
-          onOpenMdSync={handleOpenInMdSync}
+          cachedDafaMap={cachedDafaMap}
+          currentUser={currentUser}
+          onSignIn={handleSignIn}
+          onDafaSaved={handleDafasSaved}
         />
       )}
 
@@ -384,6 +504,10 @@ export default function App() {
           pdfPath={currentPdfPath}
           pdfName={currentPdfName}
           targetPage={currentPdfPage}
+          onSummarizePdf={(path, page) => {
+            setPdfViewerOpen(false);
+            handleOpenPdfSummary(path, page);
+          }}
         />
       )}
 
@@ -398,6 +522,36 @@ export default function App() {
         onFilterTableDoc={handleSelectDocFromDirectory}
       />
 
+      {/* Gemini AI PDF Summary Modal */}
+      <PdfSummaryModal
+        isOpen={pdfSummaryOpen}
+        onClose={() => setPdfSummaryOpen(false)}
+        documents={documents}
+        defaultDocPath={summaryDocPath}
+        defaultPage={summaryPage}
+        currentUser={currentUser}
+        onSignIn={handleSignIn}
+        onSummarySaved={handlePdfSaved}
+        onOpenPdf={handleOpenPdf}
+        onOpenMdSync={handleOpenInMdSync}
+      />
+
+      {/* Master Summary Store & Batch Generator Hub */}
+      <MasterSummaryHubModal
+        isOpen={masterHubOpen}
+        onClose={() => setMasterHubOpen(false)}
+        documents={documents}
+        allRows={allRows}
+        currentUser={currentUser}
+        onSignIn={handleSignIn}
+        onSignOut={handleSignOut}
+        cachedPdfSummaries={cachedPdfSummaries}
+        cachedDafaSummaries={cachedDafaSummaries}
+        onRefreshStore={refreshMasterStore}
+        onPdfSaved={handlePdfSaved}
+        onDafasSaved={handleDafasSaved}
+      />
+
       {/* Footer */}
       <footer className="bg-white border-t border-slate-200 py-4 mt-8 text-xs text-slate-500 text-center">
         <div className="max-w-7xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2">
@@ -405,11 +559,11 @@ export default function App() {
             नेपाल कानून, संबिधान र मुलुकी संहिता १०-स्तम्भ डेटा पोर्टल • रिपोजिटरी: <code className="text-slate-700 font-semibold">barshapbp2026/any-pdf-</code>
           </div>
           <div className="flex items-center gap-3">
-            <span>१,३४५ धारा तथा दफा</span>
+            <span>{toDeva(totalSectionCount)} धारा तथा दफा</span>
             <span>•</span>
-            <span>९ अनुसूची</span>
+            <span>{toDeva(totalScheduleCount)} अनुसूची</span>
             <span>•</span>
-            <span>४८ कानुनी PDF कागजात</span>
+            <span>{toDeva(documents.length)} कानुनी PDF कागजात</span>
           </div>
         </div>
       </footer>

@@ -21,10 +21,12 @@ import {
   SlidersHorizontal,
   Bookmark,
   FileCode,
-  RotateCcw
+  RotateCcw,
+  Sparkles,
 } from 'lucide-react';
 import { LegalRow, DocumentSummary } from '../types';
 import { generateMarkdownForDoc, toDeva, devaToNum, LegalMarkdownDoc } from '../utils/markdownUtils';
+import { toGitHubRawUrl, toGitHubBlobUrl } from '../utils/urlUtils';
 
 interface MarkdownPdfSyncViewProps {
   documents: DocumentSummary[];
@@ -32,6 +34,7 @@ interface MarkdownPdfSyncViewProps {
   initialDocFilename?: string;
   initialPage?: string;
   onOpen10ColumnTable?: (filename: string) => void;
+  onSummarizePdf?: (path: string, page?: string) => void;
 }
 
 export const MarkdownPdfSyncView: React.FC<MarkdownPdfSyncViewProps> = ({
@@ -40,6 +43,7 @@ export const MarkdownPdfSyncView: React.FC<MarkdownPdfSyncViewProps> = ({
   initialDocFilename,
   initialPage = '1',
   onOpen10ColumnTable,
+  onSummarizePdf,
 }) => {
   // Available documents
   const sortedDocs = useMemo(() => {
@@ -108,7 +112,11 @@ export const MarkdownPdfSyncView: React.FC<MarkdownPdfSyncViewProps> = ({
     }
   }, [initialDocFilename, documents]);
 
-
+  useEffect(() => {
+    if (initialPage) {
+      setSyncedPage(devaToNum(initialPage));
+    }
+  }, [initialPage]);
 
   // Handle section sync trigger from Markdown
   const handleSyncToPage = (pageNum: number | string, sectionLabel?: string) => {
@@ -137,49 +145,6 @@ export const MarkdownPdfSyncView: React.FC<MarkdownPdfSyncViewProps> = ({
 
     return raw;
   }, [currentMarkdown]);
-
-  useEffect(() => {
-    if (initialPage) {
-      // 1. Standardize the navigation target
-      const targetStr = initialPage.toString();
-      const cleanTarget = targetStr.replace(/[^a-zA-Z0-9०-९]/g, '');
-      
-      // 2. Try to find the page number from the section data
-      // Look for a row that matches the section_id or anusuchi_id in the current active document
-      const matchingRow = allRows.find(r => 
-        (r.pdf_name === activeDoc?.filename || r.pdf_path === activeDoc?.path) && 
-        (r.section_id === targetStr || r.anusuchi_id === targetStr || 
-         r.section_id.replace(/\.$/, '') === targetStr.replace(/\.$/, '') ||
-         r.section_id.replace(/[^a-zA-Z0-9०-९]/g, '') === cleanTarget)
-      );
-
-      if (matchingRow) {
-        const pageToSync = matchingRow.title_page || matchingRow.anusuchi_print_page || '1';
-        setSyncedPage(devaToNum(pageToSync));
-      } else {
-        // Fallback: if no matching row, maybe it's already a page number
-        const num = devaToNum(targetStr);
-        setSyncedPage(num);
-      }
-
-      // 3. Scroll to the anchor in MD
-      const tryScroll = () => {
-        const secAnchor = document.getElementById(`sec-${cleanTarget}`);
-        const schAnchor = document.getElementById(`sch-${cleanTarget}`);
-        const target = secAnchor || schAnchor;
-        if (target) {
-          target.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          return true;
-        }
-        return false;
-      };
-
-      if (!tryScroll()) {
-        const timer = setTimeout(tryScroll, 350);
-        return () => clearTimeout(timer);
-      }
-    }
-  }, [initialPage, parsedHtml, activeDoc, allRows]);
 
   // Attach click listener for dynamically rendered sync-page-btn links
   useEffect(() => {
@@ -257,8 +222,8 @@ export const MarkdownPdfSyncView: React.FC<MarkdownPdfSyncViewProps> = ({
   // PDF URLs
   const pdfRelativePath = activeDoc?.path || '';
   const localProxyUrl = `/api/pdf-proxy?path=${encodeURIComponent(pdfRelativePath)}`;
-  const rawGitHubUrl = `https://raw.githubusercontent.com/barshapbp2026/any-pdf-/main/${encodeURIComponent(pdfRelativePath)}`;
-  const githubRepoUrl = `https://github.com/barshapbp2026/any-pdf-/blob/main/${encodeURIComponent(pdfRelativePath)}`;
+  const rawGitHubUrl = toGitHubRawUrl(pdfRelativePath);
+  const githubRepoUrl = toGitHubBlobUrl(pdfRelativePath);
   const iframeSrc = `${localProxyUrl}#page=${syncedPage}&view=FitH`;
 
   // Theme classes
@@ -412,6 +377,17 @@ export const MarkdownPdfSyncView: React.FC<MarkdownPdfSyncViewProps> = ({
               <Download className="w-3.5 h-3.5" />
               <span>.md डाउनलोड</span>
             </button>
+
+            {onSummarizePdf && activeDoc && (
+              <button
+                onClick={() => onSummarizePdf(activeDoc.path, String(syncedPage))}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white transition-colors cursor-pointer"
+                title="यस कागजात वा हालको पृष्ठको Gemini AI सारांश निकाल्नुहोस्"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                <span>AI सारांश</span>
+              </button>
+            )}
 
             {onOpen10ColumnTable && activeDoc && (
               <button

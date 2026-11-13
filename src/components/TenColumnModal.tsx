@@ -1,6 +1,17 @@
-import React from 'react';
-import { X, Copy, Check, ExternalLink, ShieldCheck, ChevronLeft, ChevronRight, FileText, Folder, BookOpen } from 'lucide-react';
-import { LegalRow } from '../types';
+import React, { useEffect, useState } from 'react';
+import {
+  X, Copy, Check, ExternalLink, ShieldCheck, ChevronLeft, ChevronRight,
+  FileText, Folder, BookOpen, Sparkles, Database, RefreshCw, ArrowRight, LogIn
+} from 'lucide-react';
+import type { User } from 'firebase/auth';
+import { DafaSummaryItem, LegalRow, StoredDafaSummaryRecord } from '../types';
+import { toGitHubRawUrl } from '../utils/urlUtils';
+import {
+  buildDafaSummaryDocId,
+  getCachedDafaSummary,
+  saveDafaSummariesBatchToFirestore,
+} from '../services/firestoreSummaryStore';
+import { safeFetchJson } from '../utils/safeFetchJson';
 
 interface TenColumnModalProps {
   row: LegalRow | null;
@@ -11,7 +22,10 @@ interface TenColumnModalProps {
   hasPrev?: boolean;
   hasNext?: boolean;
   onOpenPdfViewer?: (path: string, page: string) => void;
-  onOpenMdSync?: (filename: string, page?: string) => void;
+  cachedDafaMap?: Map<string, StoredDafaSummaryRecord>;
+  currentUser?: User | null;
+  onSignIn?: () => Promise<User | null>;
+  onDafaSaved?: (records: StoredDafaSummaryRecord[]) => void;
 }
 
 export const TenColumnModal: React.FC<TenColumnModalProps> = ({
@@ -23,11 +37,86 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
   hasPrev,
   hasNext,
   onOpenPdfViewer,
-  onOpenMdSync,
+  cachedDafaMap,
+  currentUser,
+  onSignIn,
+  onDafaSaved,
 }) => {
-  const [copied, setCopied] = React.useState(false);
+  const [copied, setCopied] = useState(false);
+  const [dafaSummary, setDafaSummary] = useState<DafaSummaryItem | null>(null);
+  const [dafaLoading, setDafaLoading] = useState(false);
+  const [dafaGenerating, setDafaGenerating] = useState(false);
+  const [dafaError, setDafaError] = useState('');
+  const [dafaSaved, setDafaSaved] = useState(false);
+
+  const dafaDocId = row ? buildDafaSummaryDocId(row) : '';
+
+  useEffect(() => {
+    if (!isOpen || !row || !dafaDocId) return;
+    setDafaError('');
+    const fromMem = cachedDafaMap?.get(dafaDocId);
+    if (fromMem) {
+      setDafaSummary(fromMem);
+      setDafaSaved(true);
+      return;
+    }
+
+    let cancelled = false;
+    setDafaSummary(null);
+    setDafaSaved(false);
+    setDafaLoading(true);
+    getCachedDafaSummary(dafaDocId)
+      .then(cached => {
+        if (cancelled) return;
+        if (cached) {
+          setDafaSummary(cached);
+          setDafaSaved(true);
+        }
+      })
+      .catch(() => {
+        // ignore read error; user can generate fresh
+      })
+      .finally(() => {
+        if (!cancelled) setDafaLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, row, dafaDocId, cachedDafaMap]);
 
   if (!isOpen || !row) return null;
+
+  const handleGenerateDafaSummary = async () => {
+    setDafaGenerating(true);
+    setDafaError('');
+    try {
+      const { ok, data } = await safeFetchJson('/api/gemini/summarize-dafas', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          pdfPath: row.pdf_path,
+          items: [{ docId: dafaDocId, row }],
+        }),
+      });
+      if (!ok || !data.success || !Array.isArray(data.results) || data.results.length === 0) {
+        setDafaError(data.error || 'दफा सारांश तयार गर्न असफल भयो।');
+        return;
+      }
+      const generated: DafaSummaryItem = data.results[0];
+      setDafaSummary(generated);
+      if (currentUser?.emailVerified) {
+        const saved = await saveDafaSummariesBatchToFirestore([generated]);
+        setDafaSaved(true);
+        onDafaSaved?.(saved);
+      } else {
+        setDafaSaved(false);
+      }
+    } catch (err: any) {
+      setDafaError(err?.message || 'सर्भरसँग सम्पर्क हुन सकेन।');
+    } finally {
+      setDafaGenerating(false);
+    }
+  };
 
   const handleCopy = () => {
     const text = [
@@ -50,7 +139,7 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const rawPdfUrl = `https://raw.githubusercontent.com/barshapbp2026/any-pdf-/main/${encodeURIComponent(row.pdf_path)}`;
+  const rawPdfUrl = toGitHubRawUrl(row.pdf_path);
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-slate-950/80 backdrop-blur-sm flex items-center justify-center p-3 sm:p-5">
@@ -78,27 +167,12 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
               </p>
             </div>
           </div>
-          <div className="flex items-center gap-2">
-            {onOpenMdSync && (
-              <button
-                onClick={() => {
-                  onOpenMdSync(row.pdf_name, row.section_id || row.anusuchi_id || '1');
-                  onClose();
-                }}
-                className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold transition-all cursor-pointer shadow-lg shadow-indigo-950/20"
-                title="यस रेकर्डलाई MD रिडरमा सिंक गर्नुहोस्"
-              >
-                <BookOpen className="w-3.5 h-3.5" />
-                <span>MD मा खोल्नुहोस्</span>
-              </button>
-            )}
-            <button
-              onClick={onClose}
-              className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer"
-            >
-              <X className="w-5 h-5" />
-            </button>
-          </div>
+          <button
+            onClick={onClose}
+            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-slate-800/80 transition-colors cursor-pointer"
+          >
+            <X className="w-5 h-5" />
+          </button>
         </div>
 
         {/* Modal Body: Master Table Columns */}
@@ -222,8 +296,8 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
                   धारा/दफा/नियम/निर्देशन/बुँदा Title Name
                 </div>
                 
-                {/* 5 Sub-columns indicator */}
-                <div className="flex items-center gap-1 text-[10px] font-semibold">
+                {/* Sub-columns & type indicator */}
+                <div className="flex flex-wrap items-center gap-1 text-[10px] font-semibold">
                   <span className={`px-2 py-0.5 rounded border transition-colors ${
                     row.type === 'धारा' ? 'bg-amber-100 text-amber-900 border-amber-300 font-bold shadow-xs' : 'bg-slate-100 text-slate-400 border-slate-200'
                   }`}>
@@ -234,6 +308,11 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
                   }`}>
                     दफा {row.type === 'दफा' && '✓'}
                   </span>
+                  {row.type === 'संशोधन' && (
+                    <span className="px-2 py-0.5 rounded border bg-cyan-100 text-cyan-900 border-cyan-300 font-bold shadow-xs">
+                      संशोधन ✓
+                    </span>
+                  )}
                   <span className={`px-2 py-0.5 rounded border transition-colors ${
                     row.type === 'नियम' ? 'bg-emerald-100 text-emerald-900 border-emerald-300 font-bold shadow-xs' : 'bg-slate-100 text-slate-400 border-slate-200'
                   }`}>
@@ -303,6 +382,118 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
                 {row.anusuchi_title || <span className="text-slate-400 italic font-normal">खाली</span>}
               </div>
             </div>
+          </div>
+
+          {/* AI दफा सारांश (Firestore मास्टर स्टोर + Gemini) */}
+          <div className="mt-4 rounded-xl border border-indigo-200 bg-gradient-to-br from-indigo-50/80 via-white to-emerald-50/50 p-4 shadow-xs">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-indigo-600 text-white flex items-center justify-center">
+                  <Sparkles className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="text-sm font-bold text-slate-900 flex items-center gap-2">
+                    <span>AI दफा सारांश</span>
+                    {dafaSummary && (
+                      <span
+                        className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[11px] font-semibold border ${
+                          dafaSaved
+                            ? 'bg-emerald-100 text-emerald-800 border-emerald-300'
+                            : 'bg-amber-100 text-amber-800 border-amber-300'
+                        }`}
+                      >
+                        <Database className="w-3 h-3" />
+                        {dafaSaved ? 'मास्टर स्टोरमा सुरक्षित' : 'अस्थायी सारांश (सेभ बाँकी)'}
+                      </span>
+                    )}
+                  </h4>
+                  <p className="text-[11px] text-slate-500">
+                    पहिले Firestore मास्टर स्टोरबाट खोजिन्छ; नयाँ दफा भए Gemini बाट तयार भई स्टोर अद्यावधिक हुन्छ।
+                  </p>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                {dafaSummary && !dafaSaved && onSignIn && (
+                  <button
+                    onClick={async () => {
+                      const signed = await onSignIn();
+                      if (signed?.emailVerified) {
+                        try {
+                          const saved = await saveDafaSummariesBatchToFirestore([dafaSummary]);
+                          setDafaSaved(true);
+                          onDafaSaved?.(saved);
+                        } catch (err: any) {
+                          setDafaError(err?.message || 'Firestore मा सेभ गर्न असफल भयो।');
+                        }
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors cursor-pointer"
+                  >
+                    <LogIn className="w-3.5 h-3.5" />
+                    <span>Sign-In गरी सेभ गर्नुहोस्</span>
+                  </button>
+                )}
+
+                <button
+                  onClick={handleGenerateDafaSummary}
+                  disabled={dafaGenerating || dafaLoading}
+                  className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-xs font-semibold transition-colors cursor-pointer shadow-xs"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 ${dafaGenerating ? 'animate-spin' : ''}`} />
+                  <span>
+                    {dafaGenerating
+                      ? 'सारांश तयार हुँदै...'
+                      : dafaSummary
+                        ? 'ताजा पार्नुहोस्'
+                        : 'यो दफाको सारांश बनाउनुहोस्'}
+                  </span>
+                </button>
+              </div>
+            </div>
+
+            {dafaLoading && (
+              <div className="text-xs text-slate-600 bg-white/80 rounded-lg border border-slate-200 px-3 py-2.5 flex items-center gap-2">
+                <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-600" />
+                <span>मास्टर स्टोरबाट दफा सारांश खोजिँदैछ...</span>
+              </div>
+            )}
+
+            {dafaError && (
+              <div className="text-xs text-rose-700 bg-rose-50 border border-rose-200 rounded-lg px-3 py-2">
+                {dafaError}
+              </div>
+            )}
+
+            {!dafaLoading && dafaSummary && (
+              <div className="bg-white rounded-lg border border-indigo-100 p-3.5 space-y-2.5">
+                <p className="text-sm text-slate-800 leading-relaxed whitespace-pre-line">
+                  {dafaSummary.summaryNepali}
+                </p>
+
+                {dafaSummary.keyObligations && dafaSummary.keyObligations.length > 0 && (
+                  <div className="pt-2 border-t border-slate-100">
+                    <div className="text-[11px] font-bold text-indigo-900 mb-1.5">
+                      मुख्य कानुनी बुँदा र दायित्वहरू:
+                    </div>
+                    <ul className="space-y-1">
+                      {dafaSummary.keyObligations.map((item, idx) => (
+                        <li key={idx} className="text-xs text-slate-700 flex items-start gap-1.5">
+                          <ArrowRight className="w-3.5 h-3.5 text-indigo-500 shrink-0 mt-0.5" />
+                          <span>{item}</span>
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!dafaLoading && !dafaSummary && !dafaError && (
+              <div className="text-xs text-slate-500 bg-white/70 rounded-lg border border-dashed border-slate-300 px-3 py-2.5">
+                यस दफा/अनुसूचीको सारांश मास्टर स्टोरमा अझै सुरक्षित छैन। माथिको बटन क्लिक गरी तुरुन्त सारांश तयार गर्नुहोस्।
+              </div>
+            )}
           </div>
 
           {/* PDF Source Metadata Banner */}

@@ -318,7 +318,7 @@ export const MalpotNapiFocusView: React.FC<MalpotNapiFocusViewProps> = ({
                   </td>
                 </tr>
               ) : (
-                filteredRows.map((row, idx) => {
+                filteredRows.slice(0, 300).map((row, idx) => {
                   const isAnusuchi = !!row.anusuchi_id;
                   return (
                     <tr

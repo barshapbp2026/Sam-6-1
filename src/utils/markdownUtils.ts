@@ -43,24 +43,8 @@ export const devaToNum = (s: string | number): number => {
 export function generateMarkdownForDoc(doc: DocumentSummary, rows: LegalRow[]): LegalMarkdownDoc {
   const docRows = rows.filter(r => r.pdf_name === doc.filename || r.pdf_path === doc.path);
   
-  const sections = docRows.filter(r => r.type !== 'अनुसूची' && (r.section_id || r.title_name));
-  
-  // Deduplicate schedules by schedule ID
-  const seenSch = new Set<string>();
-  const schedules: LegalRow[] = [];
-  docRows.forEach(r => {
-    const schId = r.anusuchi_id || (r.type === 'अनुसूची' ? r.section_id : '');
-    const schTitle = r.anusuchi_title || (r.type === 'अनुसूची' ? r.title_name : '');
-    if ((r.type === 'अनुसूची' || (r.anusuchi_id && r.anusuchi_title)) && schId && !seenSch.has(schId)) {
-      seenSch.add(schId);
-      schedules.push({
-        ...r,
-        anusuchi_id: schId,
-        anusuchi_title: schTitle,
-        anusuchi_print_page: r.anusuchi_print_page || r.title_page || '१'
-      });
-    }
-  });
+  const sections = docRows.filter(r => r.section_id && r.title_name);
+  const schedules = docRows.filter(r => r.anusuchi_id && r.anusuchi_title);
 
   const cleanDocTitle = doc.filename.replace(/\.pdf$/i, '');
   const isConst = doc.filename.includes('संबिधान') || doc.filename.includes('संविधान');

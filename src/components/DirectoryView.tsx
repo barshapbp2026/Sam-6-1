@@ -1,12 +1,15 @@
 import React, { useState, useMemo } from 'react';
-import { Folder, FolderTree, FileText, Search, ExternalLink, ShieldCheck, Database, Layers } from 'lucide-react';
+import { Folder, FolderTree, FileText, Search, ExternalLink, ShieldCheck, Database, Layers, Sparkles } from 'lucide-react';
 import { DocumentSummary } from '../types';
+import { toGitHubRawUrl } from '../utils/urlUtils';
+import { devaToNum } from '../utils/markdownUtils';
 
 interface DirectoryViewProps {
   documents: DocumentSummary[];
   onSelectDoc: (filename: string) => void;
   onOpenPdf: (path: string, page: string) => void;
   onOpenMdSync?: (filename: string, page?: string) => void;
+  onSummarizePdf?: (path: string, page?: string) => void;
 }
 
 export const DirectoryView: React.FC<DirectoryViewProps> = ({
@@ -14,13 +17,14 @@ export const DirectoryView: React.FC<DirectoryViewProps> = ({
   onSelectDoc,
   onOpenPdf,
   onOpenMdSync,
+  onSummarizePdf,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedFolder, setSelectedFolder] = useState<string>('all');
 
   const folders = useMemo(() => {
     const list = Array.from(new Set(documents.map(d => d.folderName)));
-    list.sort();
+    list.sort((a, b) => devaToNum(a) - devaToNum(b));
     return list;
   }, [documents]);
 
@@ -57,7 +61,7 @@ export const DirectoryView: React.FC<DirectoryViewProps> = ({
             <div className="flex items-center gap-2">
               <FolderTree className="w-5 h-5 text-indigo-600" />
               <h2 className="text-lg font-bold text-slate-900">
-                सबै ४८ PDF कागजातहरूको वास्तविक फोल्डर तथा फाइल संरचना
+                सबै {documents.length} PDF कागजातहरूको वास्तविक फोल्डर तथा फाइल संरचना
               </h2>
             </div>
             <p className="text-xs sm:text-sm text-slate-600 mt-1">
@@ -134,7 +138,7 @@ export const DirectoryView: React.FC<DirectoryViewProps> = ({
               <div className="divide-y divide-slate-100">
                 {docs.map((doc, idx) => {
                   const hasSubfolder = !!doc.subfolderName;
-                  const rawUrl = `https://raw.githubusercontent.com/barshapbp2026/any-pdf-/main/${encodeURIComponent(doc.path)}`;
+                  const rawUrl = toGitHubRawUrl(doc.path);
                   return (
                     <div
                       key={doc.path}
@@ -168,6 +172,16 @@ export const DirectoryView: React.FC<DirectoryViewProps> = ({
                       </div>
 
                       <div className="flex items-center gap-2 shrink-0 self-end sm:self-auto flex-wrap">
+                        {onSummarizePdf && (
+                          <button
+                            onClick={() => onSummarizePdf(doc.path)}
+                            className="px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white font-semibold text-xs transition-colors cursor-pointer flex items-center gap-1 shadow-xs"
+                            title="यस PDF को Gemini AI सारांश तयार गर्नुहोस्"
+                          >
+                            <Sparkles className="w-3.5 h-3.5 text-amber-200" />
+                            <span>AI सारांश</span>
+                          </button>
+                        )}
                         {onOpenMdSync && (
                           <button
                             onClick={() => onOpenMdSync(doc.filename, '1')}

@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { LegalRow, DocumentSummary } from '../types';
 import { exportToExcel, exportToCsv } from '../utils/exportUtils';
+import { toGitHubRawUrl } from '../utils/urlUtils';
 
 interface KanuniSangaloFocusViewProps {
   allRows: LegalRow[];
@@ -180,7 +181,7 @@ export const KanuniSangaloFocusView: React.FC<KanuniSangaloFocusViewProps> = ({
                   <span>PDF हेर्नुहोस्</span>
                 </button>
                 <a
-                  href={`https://raw.githubusercontent.com/barshapbp2026/any-pdf-/main/${encodeURIComponent(doc.path)}`}
+                  href={toGitHubRawUrl(doc.path)}
                   target="_blank"
                   rel="noreferrer"
                   className="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-600 transition-colors"
