@@ -96,6 +96,55 @@ export function isAnusuchiRow(row: LegalRow): boolean {
 }
 
 /**
+ * Normalizes an Anusuchi ID cell so only the Anusuchi ID (never an Anusuchi title) is shown.
+ */
+export function formatAnusuchiIdOnly(anusuchiId?: string): string {
+  const raw = (anusuchiId || '').trim();
+  if (!raw) return '';
+  return raw
+    .split(',')
+    .map(part =>
+      part
+        .trim()
+        .replace(/[:：].*$/, '')
+        .replace(/\.+$/, '')
+        .trim()
+    )
+    .filter(Boolean)
+    .join(', ');
+}
+
+/**
+ * Strips redundant leading "अनुसूची-X:" prefix from Anusuchi Title when there is remaining title text
+ * and it is not a multi-schedule "|" summary string.
+ */
+export function formatAnusuchiTitleClean(anusuchiTitle?: string): string {
+  const raw = (anusuchiTitle || '').trim();
+  if (!raw) return '';
+  if (raw.includes('|')) return raw;
+  const stripped = raw
+    .replace(/^अनुसूची\s*[-–]?\s*[०-९0-9]+(?:\s*\(?[क-ह]\)?)?\s*[:：]\s*/i, '')
+    .trim();
+  return stripped || raw;
+}
+
+export function getDisplaySectionId(row: LegalRow): string {
+  if (isAnusuchiRow(row)) return '';
+  return row.section_id || '';
+}
+
+export function getDisplaySectionTitle(row: LegalRow): string {
+  if (isAnusuchiRow(row)) return '';
+  return row.title_name || '';
+}
+
+export function getDisplaySectionPage(row: LegalRow): string {
+  if (isAnusuchiRow(row)) return '';
+  return row.title_page || '';
+}
+
+
+/**
  * Converts Devanagari digits (०-९) in a string to ASCII digits (0-9)
  */
 export function devaDigitsToAscii(s: string): string {

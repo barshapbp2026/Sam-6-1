@@ -5,7 +5,7 @@ import { fileURLToPath } from 'url';
 import { analyzeLegalHeadersWithGemini } from './src/services/geminiHeaderService.ts';
 import { summarizePdfWithGemini, GeminiServiceError } from './src/services/geminiPdfSummaryService.ts';
 import { summarizeDafasBatchWithGemini } from './src/services/geminiDafaSummaryService.ts';
-import { resolvePdfBuffer, resolvePdfLocalPath } from './src/services/pdfResolver.ts';
+import { resolvePdfForProxy } from './src/services/pdfResolver.ts';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -68,31 +68,43 @@ app.post('/api/gemini/summarize-dafas', async (req, res) => {
   }
 });
 
-// 3. PDF Streaming Proxy Endpoint
+// 4. PDF Streaming Proxy Endpoint (Range-capable, single active remote slot, minimal RAM)
 app.get('/api/pdf-proxy', async (req, res) => {
   try {
-    const pdfPath = req.query.path as string;
+    const pdfPath = String(req.query.path || '').trim();
     if (!pdfPath) {
       return res.status(400).send('Missing PDF path parameter');
     }
 
-    const localFile = resolvePdfLocalPath(pdfPath);
-    if (localFile) {
-      res.setHeader('Content-Type', 'application/pdf');
-      res.setHeader('Content-Disposition', 'inline');
-      res.setHeader('Access-Control-Allow-Origin', '*');
-      res.setHeader('Cache-Control', 'public, max-age=86400');
-      return res.sendFile(localFile);
-    }
+    const { filePath, source } = await resolvePdfForProxy(pdfPath);
 
-    const { buffer } = await resolvePdfBuffer(pdfPath);
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', 'inline');
+    res.setHeader('Accept-Ranges', 'bytes');
     res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader(
+      'Access-Control-Expose-Headers',
+      'Accept-Ranges, Content-Range, Content-Length'
+    );
     res.setHeader('Cache-Control', 'public, max-age=86400');
-    return res.send(buffer);
+    res.setHeader('X-PDF-Source', source);
+
+    return res.sendFile(filePath, err => {
+      if (err && !res.headersSent) {
+        const code = (err as any)?.code;
+        if (code !== 'ECONNABORTED' && code !== 'ERR_STREAM_PREMATURE_CLOSE') {
+          res.status(500).send('PDF स्ट्रिम गर्न असफल भयो।');
+        }
+      }
+    });
   } catch (err: any) {
-    return res.status(500).send(err.message || 'Internal error streaming PDF');
+    if (res.headersSent) return;
+    if (err?.name === 'AbortError' || String(err?.message || '').includes('रद्द')) {
+      return res.status(499).send('PDF लोड रद्द गरियो।');
+    }
+    const msg = err?.message || 'Internal error streaming PDF';
+    const status = msg.includes('फेला परेन') ? 404 : msg.includes('अमान्य') ? 400 : 500;
+    return res.status(status).send(msg);
   }
 });
 

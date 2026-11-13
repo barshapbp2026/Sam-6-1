@@ -28,11 +28,21 @@ service cloud.firestore {
       return isSignedIn() && request.auth.token.email_verified == true;
     }
 
+    // Single App Owner
+    function isOwner() {
+      return isVerified() && request.auth.token.email == 'barshap.bp2026@gmail.com';
+    }
+
+    // Single App Admin (plus optional /admins/{uid} doc)
     function isAdmin() {
       return isVerified() && (
-        request.auth.token.email == 'ramhari95ramhari@gmail.com' ||
+        request.auth.token.email == 'utshabp.upp@gmail.com' ||
         exists(/databases/$(database)/documents/admins/$(request.auth.uid))
       );
+    }
+
+    function canManageStore() {
+      return isOwner() || isAdmin();
     }
 
     function isValidString(val, minLen, maxLen) {
@@ -133,93 +143,66 @@ service cloud.firestore {
       allow get: if isValidId(probeId) && probeId == 'connection';
     }
 
-    // Master PDF Summaries collection
+    // Master PDF Summaries collection (Public read, Owner/Admin-only writes)
     match /pdf_summaries/{summaryId} {
-      allow get: if isValidId(summaryId) && (resource.data.isPublic == true || isAdmin());
+      allow get: if isValidId(summaryId) && (resource == null || resource.data.isPublic == true || canManageStore());
       allow list: if resource.data.isPublic == true;
 
       allow create: if isValidId(summaryId) &&
-        isVerified() &&
+        canManageStore() &&
         isValidPdfSummary(incoming(), summaryId) &&
         incoming().isPublic == true &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
 
       allow update: if isValidId(summaryId) &&
-        isVerified() &&
+        canManageStore() &&
         isValidPdfSummary(incoming(), summaryId) &&
         incoming().docId == existing().docId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        (
-          (
-            isAdmin() &&
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'isPublic', 'folderId', 'folderName', 'analyzedRange', 'totalPages',
-              'fileSizeBytes', 'documentTitle', 'overview', 'keyPoints',
-              'importantSections', 'complianceAndDeadlines', 'schedulesOverview',
-              'inputMethod', 'modelUsed', 'updatedByUid', 'updatedAt'
-            ])
-          ) ||
-          (
-            existing().updatedByUid == request.auth.uid &&
-            incoming().isPublic == existing().isPublic &&
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'analyzedRange', 'totalPages', 'fileSizeBytes', 'documentTitle',
-              'overview', 'keyPoints', 'importantSections',
-              'complianceAndDeadlines', 'schedulesOverview',
-              'inputMethod', 'modelUsed', 'updatedByUid', 'updatedAt'
-            ])
-          )
-        );
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'isPublic', 'folderId', 'folderName', 'analyzedRange', 'totalPages',
+          'fileSizeBytes', 'documentTitle', 'overview', 'keyPoints',
+          'importantSections', 'complianceAndDeadlines', 'schedulesOverview',
+          'inputMethod', 'modelUsed', 'updatedByUid', 'updatedAt'
+        ]);
 
-      allow delete: if isValidId(summaryId) && isAdmin();
+      allow delete: if isValidId(summaryId) && canManageStore();
     }
 
-    // Master Individual Dafa / Section Summaries collection
+    // Master Individual Dafa / Section Summaries collection (Public read, Owner/Admin-only writes)
     match /dafa_summaries/{dafaId} {
-      allow get: if isValidId(dafaId) && (resource.data.isPublic == true || isAdmin());
+      allow get: if isValidId(dafaId) && (resource == null || resource.data.isPublic == true || canManageStore());
       allow list: if resource.data.isPublic == true;
 
       allow create: if isValidId(dafaId) &&
-        isVerified() &&
+        canManageStore() &&
         isValidDafaSummary(incoming(), dafaId) &&
         incoming().isPublic == true &&
         incoming().createdAt == request.time &&
         incoming().updatedAt == request.time;
 
       allow update: if isValidId(dafaId) &&
-        isVerified() &&
+        canManageStore() &&
         isValidDafaSummary(incoming(), dafaId) &&
         incoming().docId == existing().docId &&
         incoming().createdAt == existing().createdAt &&
         incoming().updatedAt == request.time &&
-        (
-          (
-            isAdmin() &&
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'isPublic', 'titleName', 'titlePage', 'recordType',
-              'anusuchiId', 'anusuchiTitle', 'summaryNepali',
-              'keyObligations', 'modelUsed', 'updatedByUid', 'updatedAt'
-            ])
-          ) ||
-          (
-            existing().updatedByUid == request.auth.uid &&
-            incoming().isPublic == existing().isPublic &&
-            incoming().diff(existing()).affectedKeys().hasOnly([
-              'summaryNepali', 'keyObligations', 'modelUsed', 'updatedByUid', 'updatedAt'
-            ])
-          )
-        );
+        incoming().diff(existing()).affectedKeys().hasOnly([
+          'isPublic', 'titleName', 'titlePage', 'recordType',
+          'anusuchiId', 'anusuchiTitle', 'summaryNepali',
+          'keyObligations', 'modelUsed', 'updatedByUid', 'updatedAt'
+        ]);
 
-      allow delete: if isValidId(dafaId) && isAdmin();
+      allow delete: if isValidId(dafaId) && canManageStore();
     }
 
-    // Trusted Admin Allowlist
+    // Trusted Admin Allowlist (managed strictly by Owner or Admin)
     match /admins/{adminUid} {
-      allow get: if isValidId(adminUid) && (isAdmin() || (isVerified() && request.auth.uid == adminUid));
+      allow get: if isValidId(adminUid) && (canManageStore() || (isVerified() && request.auth.uid == adminUid));
       allow create, update, delete: if isValidId(adminUid) &&
-        isAdmin() &&
+        canManageStore() &&
         incoming().keys().hasAll(['uid', 'email', 'createdAt']) &&
         incoming().keys().hasOnly(['uid', 'email', 'createdAt']) &&
         incoming().uid == adminUid &&

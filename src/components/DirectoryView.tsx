@@ -1,5 +1,5 @@
 import React, { useState, useMemo } from 'react';
-import { Folder, FolderTree, FileText, Search, ExternalLink, ShieldCheck, Database, Layers, Sparkles } from 'lucide-react';
+import { FolderTree, FileText, Search, ExternalLink, Sparkles } from 'lucide-react';
 import { DocumentSummary } from '../types';
 import { toGitHubRawUrl } from '../utils/urlUtils';
 import { devaToNum } from '../utils/markdownUtils';
@@ -126,8 +126,8 @@ export const DirectoryView: React.FC<DirectoryViewProps> = ({
                   <div>
                     <h3 className="font-bold text-slate-900 text-sm flex items-center gap-2">
                       <span>{folderName}</span>
-                      <span className="text-xs font-normal px-2 py-0.5 rounded-full bg-slate-200 text-slate-700">
-                        {docs.length} फाइलहरू
+                      <span className="text-xs font-normal text-slate-500 tabular-nums">
+                        · {docs.length} फाइल
                       </span>
                     </h3>
                   </div>

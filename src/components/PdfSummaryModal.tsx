@@ -32,6 +32,7 @@ import { compareNumericPrefixes } from '../utils/urlUtils';
 import {
   buildPdfSummaryDocId,
   getCachedPdfSummary,
+  isAuthorizedMasterUser,
   savePdfSummaryToFirestore,
 } from '../services/firestoreSummaryStore';
 import { safeFetchJson } from '../utils/safeFetchJson';
@@ -194,7 +195,7 @@ export const PdfSummaryModal: React.FC<PdfSummaryModalProps> = ({
   if (!isOpen) return null;
 
   const persistToFirestore = async (summaryData: PdfSummaryResult) => {
-    if (!currentUser || !currentUser.emailVerified) return;
+    if (!isAuthorizedMasterUser(currentUser)) return;
     setSavingToStore(true);
     try {
       const saved = await savePdfSummaryToFirestore({
@@ -260,8 +261,8 @@ export const PdfSummaryModal: React.FC<PdfSummaryModalProps> = ({
       setResult(data.summary);
       setSummarySource('gemini');
 
-      // Auto-persist standard summaries when signed in
-      if (!hasQuestion && currentUser && currentUser.emailVerified) {
+      // Auto-persist standard summaries when signed in as Owner/Admin
+      if (!hasQuestion && isAuthorizedMasterUser(currentUser)) {
         await persistToFirestore(data.summary);
       }
     } catch (err: any) {
@@ -273,8 +274,8 @@ export const PdfSummaryModal: React.FC<PdfSummaryModalProps> = ({
 
   const handleSignInAndSave = async () => {
     if (!result) return;
-    const signedUser = await onSignIn();
-    if (signedUser?.emailVerified) {
+    const signedUser = isAuthorizedMasterUser(currentUser) ? currentUser : await onSignIn();
+    if (isAuthorizedMasterUser(signedUser)) {
       setSavingToStore(true);
       try {
         const saved = await savePdfSummaryToFirestore({
@@ -292,6 +293,8 @@ export const PdfSummaryModal: React.FC<PdfSummaryModalProps> = ({
       } finally {
         setSavingToStore(false);
       }
+    } else if (signedUser) {
+      setErrorMsg('मास्टर स्टोरमा सेभ गर्ने अनुमति Owner वा Admin लाई मात्र छ (तपाईंले सारांश पढ्न र डाउनलोड गर्न सक्नुहुन्छ)।');
     }
   };
 

@@ -25,8 +25,11 @@ import {
   StoredPdfSummaryRecord,
 } from '../types';
 import {
+  ADMIN_EMAIL,
+  OWNER_EMAIL,
   buildDafaSummaryDocId,
   buildPdfSummaryDocId,
+  isAuthorizedMasterUser,
   saveDafaSummariesBatchToFirestore,
   savePdfSummaryToFirestore,
 } from '../services/firestoreSummaryStore';
@@ -157,9 +160,9 @@ export const MasterSummaryHubModal: React.FC<MasterSummaryHubModalProps> = ({
   if (!isOpen) return null;
 
   const ensureSignedIn = async (): Promise<boolean> => {
-    if (currentUser?.emailVerified) return true;
-    const u = await onSignIn();
-    return Boolean(u?.emailVerified);
+    if (isAuthorizedMasterUser(currentUser)) return true;
+    const u = currentUser ? currentUser : await onSignIn();
+    return isAuthorizedMasterUser(u);
   };
 
   const handleStopBatch = () => {
@@ -171,7 +174,9 @@ export const MasterSummaryHubModal: React.FC<MasterSummaryHubModalProps> = ({
     setBatchError('');
     const ok = await ensureSignedIn();
     if (!ok) {
-      setBatchError('Firestore मास्टर स्टोरमा सेभ गर्न कृपया Google बाट साइन-इन गर्नुहोस्।');
+      setBatchError(
+        `Firestore मास्टर स्टोरमा सेभ गर्ने अनुमति Owner (${OWNER_EMAIL}) वा Admin (${ADMIN_EMAIL}) लाई मात्र छ।`
+      );
       return;
     }
 
@@ -251,7 +256,9 @@ export const MasterSummaryHubModal: React.FC<MasterSummaryHubModalProps> = ({
     setBatchError('');
     const ok = await ensureSignedIn();
     if (!ok) {
-      setBatchError('Firestore मास्टर स्टोरमा सेभ गर्न कृपया Google बाट साइन-इन गर्नुहोस्।');
+      setBatchError(
+        `Firestore मास्टर स्टोरमा सेभ गर्ने अनुमति Owner (${OWNER_EMAIL}) वा Admin (${ADMIN_EMAIL}) लाई मात्र छ।`
+      );
       return;
     }
 
@@ -375,16 +382,11 @@ export const MasterSummaryHubModal: React.FC<MasterSummaryHubModalProps> = ({
               <Database className="w-5 h-5" />
             </div>
             <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-bold text-base sm:text-lg">
-                  Firestore मास्टर सारांश भण्डार (Master Summary Store)
-                </h3>
-                <span className="px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-200 border border-emerald-400/30 text-[11px] font-mono">
-                  विकल्प ३ • Live Sync
-                </span>
-              </div>
+              <h3 className="font-bold text-base sm:text-lg">
+                Firestore मास्टर सारांश भण्डार
+              </h3>
               <p className="text-xs text-slate-300 mt-0.5">
-                सबै PDF र ४,०८१ दफाहरूको सारांश एकैपटक जेनेरेट, सेभ, अपडेट र GitHub/LFS ब्याकअप निर्यात गर्नुहोस्
+                सबै PDF र ४,०८१ दफाहरूको सारांश जेनेरेट, सेभ, अपडेट र GitHub/LFS ब्याकअप निर्यात गर्नुहोस्
               </p>
             </div>
           </div>

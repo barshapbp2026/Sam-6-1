@@ -4,11 +4,21 @@ import {
   FileText, Folder, BookOpen, Sparkles, Database, RefreshCw, ArrowRight, LogIn
 } from 'lucide-react';
 import type { User } from 'firebase/auth';
-import { DafaSummaryItem, LegalRow, StoredDafaSummaryRecord } from '../types';
-import { toGitHubRawUrl } from '../utils/urlUtils';
+import { LegalRow, DafaSummaryItem, StoredDafaSummaryRecord } from '../types';
+import {
+  toGitHubRawUrl,
+  formatAnusuchiIdOnly,
+  formatAnusuchiTitleClean,
+  getDisplaySectionId,
+  getDisplaySectionTitle,
+  getDisplaySectionPage,
+} from '../utils/urlUtils';
+import { toPhysicalPdfPage } from '../utils/pdfPageMap';
+import { devaToNum, toDeva } from '../utils/markdownUtils';
 import {
   buildDafaSummaryDocId,
   getCachedDafaSummary,
+  isAuthorizedMasterUser,
   saveDafaSummariesBatchToFirestore,
 } from '../services/firestoreSummaryStore';
 import { safeFetchJson } from '../utils/safeFetchJson';
@@ -21,7 +31,7 @@ interface TenColumnModalProps {
   onNext?: () => void;
   hasPrev?: boolean;
   hasNext?: boolean;
-  onOpenPdfViewer?: (path: string, page: string) => void;
+  onOpenPdfViewer?: (path: string, page: string, highlightText?: string) => void;
   cachedDafaMap?: Map<string, StoredDafaSummaryRecord>;
   currentUser?: User | null;
   onSignIn?: () => Promise<User | null>;
@@ -104,7 +114,7 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
       }
       const generated: DafaSummaryItem = data.results[0];
       setDafaSummary(generated);
-      if (currentUser?.emailVerified) {
+      if (isAuthorizedMasterUser(currentUser)) {
         const saved = await saveDafaSummariesBatchToFirestore([generated]);
         setDafaSaved(true);
         onDafaSaved?.(saved);
@@ -118,6 +128,12 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
     }
   };
 
+  const displaySectionId = getDisplaySectionId(row);
+  const displayTitleName = getDisplaySectionTitle(row);
+  const displayTitlePage = getDisplaySectionPage(row);
+  const displayAnusuchiId = formatAnusuchiIdOnly(row.anusuchi_id);
+  const displayAnusuchiTitle = formatAnusuchiTitleClean(row.anusuchi_title);
+
   const handleCopy = () => {
     const text = [
       `१. Folder ID: ${row.folder_id}`,
@@ -125,11 +141,11 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
       `३. Folder Name: ${row.folder_name}`,
       `४. Subfolder Name: ${row.subfolder_name || '(खाली)'}`,
       `५. PDF Name: ${row.pdf_name}`,
-      `६. धारा/दफा/नियम/निर्देशन/बुँदा ID: ${row.section_id || '(खाली)'}`,
-      `७. Title Name: ${row.title_name || '(खाली)'}`,
-      `८. Title Page: ${row.title_page || '(खाली)'}`,
-      `९. अनुसूची ID: ${row.anusuchi_id || '(खाली)'}`,
-      `१०. अनुसूची Title: ${row.anusuchi_title || '(खाली)'}`,
+      `६. धारा/दफा/नियम/निर्देशन/बुँदा ID: ${displaySectionId || '(खाली)'}`,
+      `७. Title Name: ${displayTitleName || '(खाली)'}`,
+      `८. Title Page: ${displayTitlePage || '(खाली)'}`,
+      `९. अनुसूची ID: ${displayAnusuchiId || '(खाली)'}`,
+      `१०. अनुसूची Title: ${displayAnusuchiTitle || '(खाली)'}`,
       `११. अनुसूची Print Page: ${row.anusuchi_print_page || '(खाली)'}`,
       `PDF Path: ${row.pdf_path}`
     ].join('\n');
@@ -243,7 +259,7 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
                 </div>
                 {onOpenPdfViewer && (
                   <button
-                    onClick={() => onOpenPdfViewer(row.pdf_path, row.title_page || row.anusuchi_print_page || '1')}
+                    onClick={() => onOpenPdfViewer(row.pdf_path, row.title_page || row.anusuchi_print_page || '1', row.title_name || row.anusuchi_title)}
                     className="text-xs text-rose-700 hover:text-rose-900 hover:underline flex items-center gap-1 font-semibold cursor-pointer"
                   >
                     <span>मूल PDF खोल्नुहोस्</span>
@@ -264,7 +280,7 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
                 धारा/दफा/नियम/निर्देशन/बुँदा ID
               </div>
               <div className="font-bold text-amber-950 text-base bg-white px-2.5 py-1.5 rounded-lg border border-amber-200">
-                {row.section_id || <span className="text-slate-400 italic font-normal">खाली (अनुसूची रेकर्ड)</span>}
+                {displaySectionId || <span className="text-slate-400 italic font-normal">खाली (अनुसूची रेकर्ड)</span>}
               </div>
             </div>
 
@@ -274,12 +290,20 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
                 <span className="w-4 h-4 rounded bg-amber-200 text-amber-900 flex items-center justify-center text-[10px] font-bold">८</span>
                 Title Page
               </div>
-              <div className="font-bold text-amber-900 text-base bg-white px-2.5 py-1.5 rounded-lg border border-amber-200 flex items-center justify-between">
-                <span>{row.title_page ? `पृष्ठ नं. ${row.title_page}` : <span className="text-slate-400 italic font-normal">खाली</span>}</span>
-                {row.title_page && onOpenPdfViewer && (
+              <div className="font-bold text-amber-900 text-base bg-white px-2.5 py-1.5 rounded-lg border border-amber-200 flex items-center justify-between gap-2">
+                <span>
+                  {displayTitlePage ? (() => {
+                    const rawN = devaToNum(displayTitlePage);
+                    const physN = toPhysicalPdfPage(row.pdf_path, rawN);
+                    return physN !== rawN
+                      ? `पृष्ठ नं. ${displayTitlePage} (PDF ${toDeva(physN)})`
+                      : `पृष्ठ नं. ${displayTitlePage}`;
+                  })() : <span className="text-slate-400 italic font-normal">खाली</span>}
+                </span>
+                {displayTitlePage && onOpenPdfViewer && (
                   <button
-                    onClick={() => onOpenPdfViewer(row.pdf_path, row.title_page)}
-                    className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                    onClick={() => onOpenPdfViewer(row.pdf_path, displayTitlePage, displayTitleName)}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 font-medium cursor-pointer shrink-0"
                   >
                     <span>PDF मा हेर्नुहोस्</span>
                     <ExternalLink className="w-3 h-3" />
@@ -331,7 +355,7 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
                 </div>
               </div>
               <div className="font-semibold text-slate-900 text-sm sm:text-base bg-white px-3 py-2.5 rounded-lg border border-slate-200 leading-relaxed shadow-2xs">
-                {row.title_name || <span className="text-slate-400 italic font-normal">खाली (अनुसूची मात्र)</span>}
+                {displayTitleName || <span className="text-slate-400 italic font-normal">खाली (अनुसूची मात्र)</span>}
               </div>
             </div>
 
@@ -342,9 +366,9 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
                 अनुसूची ID
               </div>
               <div className="font-bold text-indigo-950 text-sm bg-white px-2.5 py-1.5 rounded-lg border border-indigo-200">
-                {row.anusuchi_id ? (
+                {displayAnusuchiId ? (
                   <span className="inline-flex items-center px-2 py-0.5 rounded bg-indigo-100 text-indigo-800 font-semibold">
-                    {row.anusuchi_id}
+                    {displayAnusuchiId}
                   </span>
                 ) : (
                   <span className="text-slate-400 italic font-normal">खाली</span>
@@ -358,12 +382,20 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
                 <span className="w-4 h-4 rounded bg-indigo-200 text-indigo-900 flex items-center justify-center text-[10px] font-bold">११</span>
                 अनुसूची Print Page
               </div>
-              <div className="font-bold text-indigo-900 text-sm bg-white px-2.5 py-1.5 rounded-lg border border-indigo-200 flex items-center justify-between">
-                <span>{row.anusuchi_print_page ? `पृष्ठ नं. ${row.anusuchi_print_page}` : <span className="text-slate-400 italic font-normal">खाली</span>}</span>
+              <div className="font-bold text-indigo-900 text-sm bg-white px-2.5 py-1.5 rounded-lg border border-indigo-200 flex items-center justify-between gap-2">
+                <span>
+                  {row.anusuchi_print_page ? (() => {
+                    const rawN = devaToNum(row.anusuchi_print_page);
+                    const physN = toPhysicalPdfPage(row.pdf_path, rawN);
+                    return physN !== rawN
+                      ? `पृष्ठ नं. ${row.anusuchi_print_page} (PDF ${toDeva(physN)})`
+                      : `पृष्ठ नं. ${row.anusuchi_print_page}`;
+                  })() : <span className="text-slate-400 italic font-normal">खाली</span>}
+                </span>
                 {row.anusuchi_print_page && onOpenPdfViewer && (
                   <button
-                    onClick={() => onOpenPdfViewer(row.pdf_path, row.anusuchi_print_page)}
-                    className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 font-medium cursor-pointer"
+                    onClick={() => onOpenPdfViewer(row.pdf_path, row.anusuchi_print_page, row.anusuchi_title || row.anusuchi_id)}
+                    className="text-xs text-indigo-600 hover:text-indigo-800 hover:underline flex items-center gap-1 font-medium cursor-pointer shrink-0"
                   >
                     <span>अनुसूची पृष्ठ हेर्नुहोस्</span>
                     <ExternalLink className="w-3 h-3" />
@@ -379,7 +411,7 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
                 अनुसूची Title
               </div>
               <div className="font-medium text-slate-800 text-sm bg-white px-3 py-2 rounded-lg border border-indigo-100 leading-relaxed">
-                {row.anusuchi_title || <span className="text-slate-400 italic font-normal">खाली</span>}
+                {displayAnusuchiTitle || <span className="text-slate-400 italic font-normal">खाली</span>}
               </div>
             </div>
           </div>
@@ -417,8 +449,8 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
                 {dafaSummary && !dafaSaved && onSignIn && (
                   <button
                     onClick={async () => {
-                      const signed = await onSignIn();
-                      if (signed?.emailVerified) {
+                      const signed = isAuthorizedMasterUser(currentUser) ? currentUser : await onSignIn();
+                      if (isAuthorizedMasterUser(signed)) {
                         try {
                           const saved = await saveDafaSummariesBatchToFirestore([dafaSummary]);
                           setDafaSaved(true);
@@ -426,6 +458,8 @@ export const TenColumnModal: React.FC<TenColumnModalProps> = ({
                         } catch (err: any) {
                           setDafaError(err?.message || 'Firestore मा सेभ गर्न असफल भयो।');
                         }
+                      } else if (signed) {
+                        setDafaError('मास्टर स्टोरमा सेभ गर्ने अनुमति Owner वा Admin लाई मात्र छ।');
                       }
                     }}
                     className="inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-semibold transition-colors cursor-pointer"

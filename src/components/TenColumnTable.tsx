@@ -1,17 +1,30 @@
 import React, { useState, useMemo } from 'react';
 import {
-  Search, Filter, Eye, ArrowUpRight, Copy, Check, ChevronDown, ChevronRight,
-  Download, FileSpreadsheet, RefreshCw, Folder, Layers, Columns3, CheckCircle2,
-  ChevronLeft, ChevronRight as ChevronRightIcon, Merge, FileText, Columns, Sparkles
+  Search, Eye, ArrowUpRight, Copy, Check, ChevronDown, ChevronRight,
+  Download, FileSpreadsheet, RefreshCw, Folder, Columns3,
+  ChevronLeft, ChevronRight as ChevronRightIcon, FileText, Columns, Sparkles
 } from 'lucide-react';
 import { LegalRow, DocumentSummary } from '../types';
-import { rowBelongsToFolder, matchesDocName, isAnusuchiRow, compareLegalRows, parseDevaInt } from '../utils/urlUtils';
+import {
+  rowBelongsToFolder,
+  matchesDocName,
+  isAnusuchiRow,
+  compareLegalRows,
+  parseDevaInt,
+  formatAnusuchiIdOnly,
+  formatAnusuchiTitleClean,
+  getDisplaySectionId,
+  getDisplaySectionTitle,
+  getDisplaySectionPage,
+} from '../utils/urlUtils';
+import { toPhysicalPdfPage } from '../utils/pdfPageMap';
+import { devaToNum, toDeva } from '../utils/markdownUtils';
 
 interface TenColumnTableProps {
   rows: LegalRow[];
   documents: DocumentSummary[];
   onOpenModal: (row: LegalRow) => void;
-  onOpenPdf: (path: string, page: string) => void;
+  onOpenPdf: (path: string, page: string, highlightText?: string) => void;
   onOpenMdSync?: (filename: string, page?: string) => void;
   onSummarizePdf?: (path: string, page?: string) => void;
   selectedDocFilter?: string;
@@ -210,7 +223,12 @@ export const TenColumnTable: React.FC<TenColumnTableProps> = ({
   }, [paginatedRows]);
 
   const handleCopyRow = (r: LegalRow, uniqueKey: string) => {
-    const text = `${r.folder_id}\t${r.subfolder_id}\t${r.folder_name}\t${r.subfolder_name}\t${r.pdf_name}\t${r.type}\t${r.section_id}\t${r.title_name}\t${r.title_page}\t${r.anusuchi_id}\t${r.anusuchi_title}\t${r.anusuchi_print_page}`;
+    const secId = getDisplaySectionId(r);
+    const secTitle = getDisplaySectionTitle(r);
+    const secPage = getDisplaySectionPage(r);
+    const anuId = formatAnusuchiIdOnly(r.anusuchi_id);
+    const anuTitle = formatAnusuchiTitleClean(r.anusuchi_title);
+    const text = `${r.folder_id}\t${r.subfolder_id}\t${r.folder_name}\t${r.subfolder_name}\t${r.pdf_name}\t${r.type}\t${secId}\t${secTitle}\t${secPage}\t${anuId}\t${anuTitle}\t${r.anusuchi_print_page}`;
     navigator.clipboard.writeText(text);
     setCopiedId(uniqueKey);
     setTimeout(() => setCopiedId(null), 1500);
@@ -250,6 +268,11 @@ export const TenColumnTable: React.FC<TenColumnTableProps> = ({
   ) => {
     const isSchedule = isAnusuchiRow(r);
     const shouldMerge = mergeIdenticalRows && spanInfo;
+    const displaySectionId = getDisplaySectionId(r);
+    const displayTitleName = getDisplaySectionTitle(r);
+    const displayTitlePage = getDisplaySectionPage(r);
+    const displayAnusuchiId = formatAnusuchiIdOnly(r.anusuchi_id);
+    const displayAnusuchiTitle = formatAnusuchiTitleClean(r.anusuchi_title);
 
     return (
       <tr
@@ -316,8 +339,7 @@ export const TenColumnTable: React.FC<TenColumnTableProps> = ({
             title={r.subfolder_name}
           >
             {r.subfolder_name ? (
-              <span className="font-medium text-slate-800 flex items-center gap-1">
-                <span className="w-1.5 h-1.5 rounded-full bg-blue-500 shrink-0"></span>
+              <span className="font-medium text-slate-800">
                 {r.subfolder_name}
               </span>
             ) : (
@@ -339,7 +361,7 @@ export const TenColumnTable: React.FC<TenColumnTableProps> = ({
               <div className="flex items-start gap-1.5">
                 <FileText className="w-3.5 h-3.5 text-red-600 shrink-0 mt-0.5" />
                 <button
-                  onClick={() => onOpenPdf(r.pdf_path, r.title_page || r.anusuchi_print_page || '1')}
+                  onClick={() => onOpenPdf(r.pdf_path, r.title_page || r.anusuchi_print_page || '1', r.title_name || r.anusuchi_title)}
                   className="text-left font-semibold text-slate-900 hover:text-red-700 hover:underline leading-snug cursor-pointer transition-colors"
                   title="क्लिक गरी मूल PDF हेर्नुहोस्"
                 >
@@ -347,10 +369,8 @@ export const TenColumnTable: React.FC<TenColumnTableProps> = ({
                 </button>
               </div>
               {shouldMerge && spanInfo.rowSpan > 1 && (
-                <div className="flex items-center gap-1 mt-0.5">
-                  <span className="inline-block text-[10px] font-bold text-rose-800 bg-rose-100/90 border border-rose-200/80 px-2 py-0.5 rounded-full shadow-2xs">
-                    {spanInfo.rowSpan} रेकर्डहरू
-                  </span>
+                <div className="text-[11px] font-medium text-slate-500 tabular-nums">
+                  {spanInfo.rowSpan} रेकर्ड
                 </div>
               )}
             </div>
@@ -359,19 +379,19 @@ export const TenColumnTable: React.FC<TenColumnTableProps> = ({
 
         {/* Column 6: धारा/दफा/नियम/निर्देशन/बुँदा ID (Shifted from 5 to 6) */}
         <td className="p-2.5 text-center border-r border-slate-200 font-bold text-amber-700 whitespace-nowrap">
-          {r.section_id || <span className="text-slate-300">-</span>}
+          {displaySectionId || <span className="text-slate-300">-</span>}
         </td>
 
         {/* Column 7: धारा/दफा/नियम/निर्देशन/बुँदा Title Name (५ उप-स्तम्भ वा १ स्तम्भ) */}
         {showSubColumns ? (
           <>
-            <td className={`p-2.5 border-r border-slate-200 w-auto max-w-[240px] whitespace-normal break-words font-['Mukta','Noto_Sans_Devanagari',sans-serif] font-semibold text-xs tracking-wide antialiased leading-relaxed ${r.type === 'धारा' ? 'bg-amber-50/70 text-amber-950 shadow-2xs' : 'text-slate-300 text-center'}`}>
-              {r.type === 'धारा' ? r.title_name : '-'}
+            <td className={`p-2.5 border-r border-slate-200 w-auto max-w-[240px] whitespace-normal break-words font-['Mukta','Noto_Sans_Devanagari',sans-serif] font-semibold text-xs tracking-wide antialiased leading-relaxed ${r.type === 'धारा' && displayTitleName ? 'bg-amber-50/70 text-amber-950 shadow-2xs' : 'text-slate-300 text-center'}`}>
+              {r.type === 'धारा' && displayTitleName ? displayTitleName : '-'}
             </td>
-            <td className={`p-2.5 border-r border-slate-200 w-auto max-w-[240px] whitespace-normal break-words font-['Mukta','Noto_Sans_Devanagari',sans-serif] font-semibold text-xs tracking-wide antialiased leading-relaxed ${(r.type === 'दफा' || r.type === 'संशोधन') ? 'bg-blue-50/70 text-blue-950 shadow-2xs' : 'text-slate-300 text-center'}`}>
-              {(r.type === 'दफा' || r.type === 'संशोधन') ? (
+            <td className={`p-2.5 border-r border-slate-200 w-auto max-w-[240px] whitespace-normal break-words font-['Mukta','Noto_Sans_Devanagari',sans-serif] font-semibold text-xs tracking-wide antialiased leading-relaxed ${(r.type === 'दफा' || r.type === 'संशोधन') && displayTitleName ? 'bg-blue-50/70 text-blue-950 shadow-2xs' : 'text-slate-300 text-center'}`}>
+              {(r.type === 'दफा' || r.type === 'संशोधन') && displayTitleName ? (
                 <>
-                  <span>{r.title_name}</span>
+                  <span>{displayTitleName}</span>
                   {r.type === 'संशोधन' && (
                     <span className="ml-1.5 inline-block px-1.5 py-0.2 rounded text-[9px] font-bold bg-teal-100 text-teal-800 border border-teal-200 align-middle">
                       संशोधन
@@ -380,21 +400,21 @@ export const TenColumnTable: React.FC<TenColumnTableProps> = ({
                 </>
               ) : '-'}
             </td>
-            <td className={`p-2.5 border-r border-slate-200 w-auto max-w-[240px] whitespace-normal break-words font-['Mukta','Noto_Sans_Devanagari',sans-serif] font-semibold text-xs tracking-wide antialiased leading-relaxed ${r.type === 'नियम' ? 'bg-emerald-50/70 text-emerald-950 shadow-2xs' : 'text-slate-300 text-center'}`}>
-              {r.type === 'नियम' ? r.title_name : '-'}
+            <td className={`p-2.5 border-r border-slate-200 w-auto max-w-[240px] whitespace-normal break-words font-['Mukta','Noto_Sans_Devanagari',sans-serif] font-semibold text-xs tracking-wide antialiased leading-relaxed ${r.type === 'नियम' && displayTitleName ? 'bg-emerald-50/70 text-emerald-950 shadow-2xs' : 'text-slate-300 text-center'}`}>
+              {r.type === 'नियम' && displayTitleName ? displayTitleName : '-'}
             </td>
-            <td className={`p-2.5 border-r border-slate-200 w-auto max-w-[240px] whitespace-normal break-words font-['Mukta','Noto_Sans_Devanagari',sans-serif] font-semibold text-xs tracking-wide antialiased leading-relaxed ${r.type === 'निर्देशन' ? 'bg-purple-50/70 text-purple-950 shadow-2xs' : 'text-slate-300 text-center'}`}>
-              {r.type === 'निर्देशन' ? r.title_name : '-'}
+            <td className={`p-2.5 border-r border-slate-200 w-auto max-w-[240px] whitespace-normal break-words font-['Mukta','Noto_Sans_Devanagari',sans-serif] font-semibold text-xs tracking-wide antialiased leading-relaxed ${r.type === 'निर्देशन' && displayTitleName ? 'bg-purple-50/70 text-purple-950 shadow-2xs' : 'text-slate-300 text-center'}`}>
+              {r.type === 'निर्देशन' && displayTitleName ? displayTitleName : '-'}
             </td>
-            <td className={`p-2.5 border-r border-slate-200 w-auto max-w-[240px] whitespace-normal break-words font-['Mukta','Noto_Sans_Devanagari',sans-serif] font-semibold text-xs tracking-wide antialiased leading-relaxed ${(r.type === 'बुँदा' || r.type === 'महल') ? 'bg-rose-50/70 text-rose-950 shadow-2xs' : 'text-slate-300 text-center'}`}>
-              {(r.type === 'बुँदा' || r.type === 'महल') ? r.title_name : '-'}
+            <td className={`p-2.5 border-r border-slate-200 w-auto max-w-[240px] whitespace-normal break-words font-['Mukta','Noto_Sans_Devanagari',sans-serif] font-semibold text-xs tracking-wide antialiased leading-relaxed ${(r.type === 'बुँदा' || r.type === 'महल') && displayTitleName ? 'bg-rose-50/70 text-rose-950 shadow-2xs' : 'text-slate-300 text-center'}`}>
+              {(r.type === 'बुँदा' || r.type === 'महल') && displayTitleName ? displayTitleName : '-'}
             </td>
           </>
         ) : (
           <td className="p-2.5 border-r border-slate-200 w-auto max-w-md whitespace-normal break-words font-['Mukta','Noto_Sans_Devanagari',sans-serif] font-semibold text-slate-900 text-xs tracking-wide antialiased leading-relaxed">
-            {r.title_name ? (
+            {displayTitleName ? (
               <>
-                <span>{r.title_name}</span>
+                <span>{displayTitleName}</span>
                 {r.type === 'संशोधन' && (
                   <span className="ml-1.5 inline-block px-1.5 py-0.2 rounded text-[9px] font-bold bg-teal-100 text-teal-800 border border-teal-200 align-middle">
                     संशोधन
@@ -407,24 +427,35 @@ export const TenColumnTable: React.FC<TenColumnTableProps> = ({
 
         {/* Column 8: Title Page (Shifted from 7 to 8) */}
         <td className="p-2.5 text-center border-r border-slate-200 font-bold text-amber-900 whitespace-nowrap">
-          {r.title_page ? (
-            <button
-              onClick={() => onOpenPdf(r.pdf_path, r.title_page)}
-              className="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 transition-colors cursor-pointer text-[11px] whitespace-nowrap"
-              title="मूल PDF मा यो पृष्ठ खोल्नुहोस्"
-            >
-              {r.title_page}
-            </button>
-          ) : (
+          {displayTitlePage ? (() => {
+            const rawNum = devaToNum(displayTitlePage);
+            const physNum = toPhysicalPdfPage(r.pdf_path, rawNum);
+            return (
+              <button
+                onClick={() => onOpenPdf(r.pdf_path, displayTitlePage, displayTitleName)}
+                className="px-1.5 py-0.5 rounded bg-amber-100 hover:bg-amber-200 text-amber-900 transition-colors cursor-pointer text-[11px] whitespace-nowrap"
+                title={
+                  physNum !== rawNum
+                    ? `पुस्तक पृष्ठ ${displayTitlePage} → मूल PDF पृष्ठ ${toDeva(physNum)} मा खोल्नुहोस्`
+                    : 'मूल PDF मा यो पृष्ठ खोल्नुहोस्'
+                }
+              >
+                {displayTitlePage}
+                {physNum !== rawNum && (
+                  <span className="ml-1 text-[9px] text-amber-700 font-normal">(PDF {toDeva(physNum)})</span>
+                )}
+              </button>
+            );
+          })() : (
             <span className="text-slate-300">-</span>
           )}
         </td>
 
         {/* Column 9: अनुसूची ID (Shifted from 8 to 9) */}
         <td className="p-2.5 border-r border-slate-200 font-bold text-indigo-700 whitespace-nowrap">
-          {r.anusuchi_id ? (
+          {displayAnusuchiId ? (
             <span className="inline-block px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-900 text-[11px] whitespace-nowrap">
-              {r.anusuchi_id}
+              {displayAnusuchiId}
             </span>
           ) : (
             <span className="text-slate-300">-</span>
@@ -433,20 +464,31 @@ export const TenColumnTable: React.FC<TenColumnTableProps> = ({
 
         {/* Column 10: अनुसूची Title (Shifted from 9 to 10) */}
         <td className="p-2.5 border-r border-slate-200 text-slate-800 text-[11px] leading-snug min-w-[200px]">
-          {r.anusuchi_title || <span className="text-slate-300">-</span>}
+          {displayAnusuchiTitle || <span className="text-slate-300">-</span>}
         </td>
 
         {/* Column 11: अनुसूची Print Page (Shifted from 10 to 11) */}
         <td className="p-2.5 text-center border-r border-slate-200 font-bold text-indigo-900 whitespace-nowrap">
-          {r.anusuchi_print_page ? (
-            <button
-              onClick={() => onOpenPdf(r.pdf_path, r.anusuchi_print_page)}
-              className="px-1.5 py-0.5 rounded bg-indigo-100 hover:bg-indigo-200 text-indigo-900 transition-colors cursor-pointer text-[11px] whitespace-nowrap"
-              title="मूल PDF मा अनुसूची पृष्ठ खोल्नुहोस्"
-            >
-              {r.anusuchi_print_page}
-            </button>
-          ) : (
+          {r.anusuchi_print_page ? (() => {
+            const rawNum = devaToNum(r.anusuchi_print_page);
+            const physNum = toPhysicalPdfPage(r.pdf_path, rawNum);
+            return (
+              <button
+                onClick={() => onOpenPdf(r.pdf_path, r.anusuchi_print_page, r.anusuchi_title || displayAnusuchiId)}
+                className="px-1.5 py-0.5 rounded bg-indigo-100 hover:bg-indigo-200 text-indigo-900 transition-colors cursor-pointer text-[11px] whitespace-nowrap"
+                title={
+                  physNum !== rawNum
+                    ? `पुस्तक पृष्ठ ${r.anusuchi_print_page} → मूल PDF पृष्ठ ${toDeva(physNum)} मा खोल्नुहोस्`
+                    : 'मूल PDF मा अनुसूची पृष्ठ खोल्नुहोस्'
+                }
+              >
+                {r.anusuchi_print_page}
+                {physNum !== rawNum && (
+                  <span className="ml-1 text-[9px] text-indigo-700 font-normal">(PDF {toDeva(physNum)})</span>
+                )}
+              </button>
+            );
+          })() : (
             <span className="text-slate-300">-</span>
           )}
         </td>
@@ -491,7 +533,7 @@ export const TenColumnTable: React.FC<TenColumnTableProps> = ({
               </button>
             )}
             <button
-              onClick={() => onOpenPdf(r.pdf_path, r.title_page || r.anusuchi_print_page || '1')}
+              onClick={() => onOpenPdf(r.pdf_path, r.title_page || r.anusuchi_print_page || '1', r.title_name || r.anusuchi_title)}
               className="p-1 rounded bg-slate-100 hover:bg-red-100 text-red-700 transition-colors cursor-pointer"
               title="PDF खोल्नुहोस्"
             >
@@ -540,15 +582,15 @@ export const TenColumnTable: React.FC<TenColumnTableProps> = ({
                   setFolderFilter(isSelected ? 'all' : f);
                   setDocFilter('all');
                 }}
-                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1 ${
+                className={`px-2.5 py-1 rounded-lg text-xs font-medium transition-all cursor-pointer flex items-center gap-1.5 ${
                   isSelected
-                    ? 'bg-indigo-600 text-white shadow-xs font-bold'
+                    ? 'bg-slate-900 text-white font-semibold'
                     : 'bg-slate-100 text-slate-700 hover:bg-slate-200'
                 }`}
               >
                 <span>{f}</span>
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full ${isSelected ? 'bg-white/20 text-white' : 'bg-slate-200 text-slate-600'}`}>
-                  {count}
+                <span className={`text-[11px] font-mono tabular-nums ${isSelected ? 'text-slate-300' : 'text-slate-500'}`}>
+                  ({count})
                 </span>
               </button>
             );
@@ -763,20 +805,15 @@ export const TenColumnTable: React.FC<TenColumnTableProps> = ({
         {/* Table summary bar */}
         <div className="p-3 bg-slate-50 border-b border-slate-200 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-600">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="font-semibold text-slate-900">
-              कुल {filteredRows.length.toLocaleString('ne-NP')} रेकर्डहरू फेला परे
+            <span className="font-semibold text-slate-900 tabular-nums">
+              कुल {filteredRows.length.toLocaleString('ne-NP')} रेकर्ड
             </span>
-            <span className="text-slate-400">•</span>
-            <span className="text-indigo-700 font-medium">
+            <span className="text-slate-400">·</span>
+            <span className="text-slate-600 font-medium">
               {viewMode === 'folder-grouped' 
-                ? `${folderGroupedRows.size} फोल्डरहरूमा विभाजित एकल तालिका` 
+                ? `${folderGroupedRows.size} फोल्डरमा विभाजित` 
                 : `पृष्ठ ${page} / ${totalPages}`}
             </span>
-            {showSubColumns && (
-              <span className="bg-indigo-50 text-indigo-700 border border-indigo-200 px-2 py-0.5 rounded text-[11px] font-semibold">
-                ७. मा ५ Sub-columns: धारा / दफा / नियम / निर्देशन / बुँदा
-              </span>
-            )}
           </div>
 
           {viewMode === 'folder-grouped' ? (
@@ -928,12 +965,12 @@ export const TenColumnTable: React.FC<TenColumnTableProps> = ({
                               <span className="text-sm font-bold text-white tracking-wide">
                                 फोल्डर: {fName}
                               </span>
-                              <span className="text-xs font-normal text-indigo-200 bg-indigo-900/60 px-2 py-0.5 rounded-full border border-indigo-700/50">
-                                {fRows.length} रेकर्डहरू • {uniquePdfsInFolder} PDF कागजातहरू
+                              <span className="text-xs font-normal text-slate-300 tabular-nums">
+                                · {fRows.length} रेकर्ड · {uniquePdfsInFolder} PDF
                               </span>
                               {folderFilter === 'all' && sharedTotalCount > fRows.length && (
-                                <span className="text-[11px] font-normal text-amber-200 bg-amber-900/50 px-2 py-0.5 rounded-full border border-amber-500/40">
-                                  (साझा फोल्डर सहित जम्मा {sharedTotalCount})
+                                <span className="text-[11px] font-normal text-amber-300">
+                                  (साझा सहित {sharedTotalCount})
                                 </span>
                               )}
                             </button>

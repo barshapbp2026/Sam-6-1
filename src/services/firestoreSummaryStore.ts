@@ -21,6 +21,17 @@ import type {
   StoredPdfSummaryRecord,
 } from '../types';
 
+export const OWNER_EMAIL = 'barshap.bp2026@gmail.com';
+export const ADMIN_EMAIL = 'utshabp.upp@gmail.com';
+
+export function isAuthorizedMasterUser(
+  user: { email?: string | null; emailVerified?: boolean | null } | null | undefined
+): boolean {
+  if (!user || !user.emailVerified || !user.email) return false;
+  const email = user.email.trim().toLowerCase();
+  return email === OWNER_EMAIL || email === ADMIN_EMAIL;
+}
+
 export enum OperationType {
   CREATE = 'create',
   UPDATE = 'update',
@@ -150,8 +161,10 @@ export async function savePdfSummaryToFirestore(params: {
   summary: PdfSummaryResult;
 }): Promise<StoredPdfSummaryRecord> {
   const user = auth.currentUser;
-  if (!user || !user.emailVerified) {
-    throw new Error('Firestore मास्टर स्टोरमा सेभ गर्न कृपया Google बाट साइन-इन गर्नुहोस्।');
+  if (!user || !isAuthorizedMasterUser(user)) {
+    throw new Error(
+      `Firestore मास्टर स्टोरमा सेभ गर्ने अनुमति Owner (${OWNER_EMAIL}) वा Admin (${ADMIN_EMAIL}) लाई मात्र छ।`
+    );
   }
 
   const { docId, docInfo, pdfPath, mode, language, summary } = params;
@@ -232,8 +245,10 @@ export async function saveDafaSummariesBatchToFirestore(
   existingMap?: Map<string, StoredDafaSummaryRecord>
 ): Promise<StoredDafaSummaryRecord[]> {
   const user = auth.currentUser;
-  if (!user || !user.emailVerified) {
-    throw new Error('Firestore मास्टर स्टोरमा दफा सारांश सेभ गर्न कृपया Google बाट साइन-इन गर्नुहोस्।');
+  if (!user || !isAuthorizedMasterUser(user)) {
+    throw new Error(
+      `Firestore मास्टर स्टोरमा दफा सारांश सेभ गर्ने अनुमति Owner (${OWNER_EMAIL}) वा Admin (${ADMIN_EMAIL}) लाई मात्र छ।`
+    );
   }
   if (items.length === 0) return [];
 
